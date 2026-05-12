@@ -3,6 +3,7 @@
 
 let worker1Port = null;
 let sinkWriter = null;
+let writeCount = 0;
 
 // Handle messages from the main thread
 self.onmessage = (event) => {
@@ -20,7 +21,12 @@ self.onmessage = (event) => {
 
       if (sinkWriter) {
         try {
-          console.log('Worker 2: Writing frame to sink, ts:', frame.timestamp);
+
+          if (writeCount % 200 === 0) {
+            console.log('Worker 2: Writing frame to sink, ts:', frame.timestamp, 'type:', frame.type);
+          }
+          writeCount++;
+
           await sinkWriter.write(frame);
         } catch (err) {
           console.error('Worker 2: Failed to write frame to sink:', err);
@@ -31,6 +37,7 @@ self.onmessage = (event) => {
       } else {
         //console.warn('Worker 2: Received frame but sinkWriter is not ready yet. Frame lost.');
         if (typeof frame.close === 'function') {
+          console.log('Worker 2: Discarding frame. Timestamp: ', frame.timestamp);
           frame.close();
         }
       }

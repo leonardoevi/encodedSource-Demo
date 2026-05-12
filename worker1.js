@@ -1,6 +1,9 @@
 // worker1.js - Interceptor Worker
 'use strict';
 
+// Configurable buffer size in number of frames (60 frames = ~2 seconds at 30fps)
+const BUFFER_FRAMES = 120;
+
 let worker2Port = null;
 
 // Handle messages from the main thread
@@ -21,6 +24,9 @@ self.onrtctransform = (event) => {
   const readable = transformer.readable;
   const writable = transformer.writable;
 
+  let frameCount = 0;
+  const frameQueue = [];
+
   const transformStream = new TransformStream({
     transform(encodedFrame, controller) {
       if (!worker2Port) {
@@ -33,20 +39,30 @@ self.onrtctransform = (event) => {
         // 1. Clone the frame for Worker 2
         // @ts-ignore
         const clonedFrame = new RTCEncodedVideoFrame(encodedFrame);
-        
-        //console.log('Worker 1: clonedFrame.close type is:', typeof clonedFrame.close);
 
-        // 2. Pass the ORIGINAL frame through to PC1
+        if (frameCount % 200 === 0) {
+          console.log('Worker 1: Cloned frame, ts:', clonedFrame.timestamp, 'type:', clonedFrame.type);
+        }
+        frameCount++;
+
+        // 2. Pass the ORIGINAL frame through to PC1 immediately
         controller.enqueue(encodedFrame);
 
-        //console.log('Worker 1: Enqueued original, sending clone, ts:', encodedFrame.timestamp);
+        // 3. Buffer the CLONED frame
+        frameQueue.push(clonedFrame);
 
-        // 3. Send the CLONED frame to Worker 2 (without transferring)
-        worker2Port.postMessage({ frame: clonedFrame });
-
-        // 4. Safely close the clone in Worker 1 if supported
-        if (typeof clonedFrame.close === 'function') {
-          clonedFrame.close();
+        // 4. If the queue length exceeds BUFFER_FRAMES, send the oldest frame
+        if (frameQueue.length > BUFFER_FRAMES) {
+          const frameToSend = frameQueue.shift();
+          try {
+            worker2Port.postMessage({ frame: frameToSend });
+          } catch (err) {
+            console.error('Worker 1: Failed to send buffered frame:', err);
+          } finally {
+            if (typeof frameToSend.close === 'function') {
+              frameToSend.close();
+            }
+          }
         }
       } catch (e) {
         console.error('Worker 1: Failed to clone or send frame:', e);
