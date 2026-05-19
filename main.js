@@ -59,6 +59,8 @@ async function connect() {
     remoteVideo1.srcObject = e.streams[0];
   };
 
+  //startPairMonitoring(pc1Local, pc1Remote, "PC1");
+
   // Add track to PC1 local
   const sender1 = pc1Local.addTrack(videoTrack, localStream);
 
@@ -73,6 +75,7 @@ async function connect() {
   // Negotiate PC1
   await negotiate(pc1Local, pc1Remote);
   console.log('PC1 connected.');
+  logUsedEncoder(pc1Local, 'PC1');
 
   // --- Setup PC2 (Sink Connection) ---
   console.log('Setting up PC2...');
@@ -81,7 +84,7 @@ async function connect() {
 
   pc2Remote.ontrack = (e) => {
     console.log('PC2: Received remote track');
-    remoteVideo2.srcObject = e.streams[0];
+    remoteVideo2.srcObject = e.streams[0] || new MediaStream([e.track]);
   };
 
   // Create a transceiver to trigger negotiation and get a sender without capturing raw video again
@@ -104,6 +107,9 @@ async function connect() {
   // Negotiate PC2
   await negotiate(pc2Local, pc2Remote);
   console.log('PC2 connected.');
+  logUsedEncoder(pc2Local, 'PC2');
+
+  //startPairMonitoring(pc2Local, pc2Remote, "PC2");
 }
 
 async function negotiate(pcLocal, pcRemote) {
@@ -153,4 +159,123 @@ function hangup() {
   startButton.disabled = false;
   connectButton.disabled = true;
   hangupButton.disabled = true;
+}
+
+function startPairMonitoring(pcLocal, pcRemote, label) {
+  let prevStatsLocal = new Map();
+  let prevStatsRemote = new Map();
+
+  setInterval(async () => {
+    if (pcLocal.signalingState === "closed" || pcRemote.signalingState === "closed") return;
+
+    try {
+      const [statsLocal, statsRemote] = await Promise.all([pcLocal.getStats(), pcRemote.getStats()]);
+
+      let txLog = "  [TX] No media stats";
+      let rxLog = "  [RX] No media stats";
+
+      const processTx = (report) => {
+        const currentBytes = report.bytesSent || 0;
+        const currentTimestamp = report.timestamp;
+        const prev = prevStatsLocal.get(report.id) || {};
+        const timeDiffSec = prev.timestamp ? (currentTimestamp - prev.timestamp) / 1000 : 0;
+
+        if (timeDiffSec > 0 && prev.bytesSent !== undefined) {
+          const bytesPerSec = (currentBytes - prev.bytesSent) / timeDiffSec;
+          const kbps = (bytesPerSec * 8) / 1000;
+          txLog = `  [TX: ${report.type}] Bitrate: ${kbps.toFixed(2)} kbps (${Math.round(bytesPerSec)} B/s) | Total Sent: ${currentBytes}`;
+        } else {
+          txLog = `  [TX: ${report.type}] Total Sent: ${currentBytes}`;
+        }
+        prev.bytesSent = currentBytes;
+        prev.timestamp = currentTimestamp;
+        prevStatsLocal.set(report.id, prev);
+      };
+
+      const processRx = (report) => {
+        const currentBytes = report.bytesReceived || 0;
+        const currentFramesDecoded = report.framesDecoded;
+        const currentTimestamp = report.timestamp;
+        const prev = prevStatsRemote.get(report.id) || {};
+        const timeDiffSec = prev.timestamp ? (currentTimestamp - prev.timestamp) / 1000 : 0;
+
+        if (timeDiffSec > 0 && prev.bytesReceived !== undefined) {
+          const bytesPerSec = (currentBytes - prev.bytesReceived) / timeDiffSec;
+          const kbps = (bytesPerSec * 8) / 1000;
+          let framesStr = currentFramesDecoded !== undefined ? ` | Decoded: ${currentFramesDecoded}` : '';
+          if (currentFramesDecoded !== undefined && prev.framesDecoded !== undefined) {
+            const fps = Math.round((currentFramesDecoded - prev.framesDecoded) / timeDiffSec);
+            framesStr += ` (${fps} fps)`;
+          }
+          rxLog = `  [RX: ${report.type}] Bitrate: ${kbps.toFixed(2)} kbps (${Math.round(bytesPerSec)} B/s)${framesStr} | Total Recv: ${currentBytes}`;
+        } else {
+          let framesStr = currentFramesDecoded !== undefined ? ` | Decoded: ${currentFramesDecoded}` : '';
+          rxLog = `  [RX: ${report.type}] Total Recv: ${currentBytes}${framesStr}`;
+        }
+        prev.bytesReceived = currentBytes;
+        if (currentFramesDecoded !== undefined) prev.framesDecoded = currentFramesDecoded;
+        prev.timestamp = currentTimestamp;
+        prevStatsRemote.set(report.id, prev);
+      };
+
+      let foundTx = false;
+      statsLocal.forEach(report => {
+        if (report.type === 'outbound-rtp') {
+          foundTx = true;
+          processTx(report);
+        }
+      });
+      if (!foundTx) {
+        statsLocal.forEach(report => {
+          if (report.type === 'transport' && report.bytesSent > 0) {
+            processTx(report);
+          }
+        });
+      }
+
+      let foundRx = false;
+      statsRemote.forEach(report => {
+        if (report.type === 'inbound-rtp') {
+          foundRx = true;
+          processRx(report);
+        }
+      });
+      if (!foundRx) {
+        statsRemote.forEach(report => {
+          if (report.type === 'transport' && report.bytesReceived > 0) {
+            processRx(report);
+          }
+        });
+      }
+
+      console.log(`\n=== [${label} Stats] State: Local(${pcLocal.connectionState}) / Remote(${pcRemote.connectionState}) ===\n${txLog}\n${rxLog}\n===============================================================`);
+    } catch (err) {
+      console.error(`[${label}] getStats error:`, err);
+    }
+  }, 3000); // Check every 3 seconds
+}
+
+function logUsedEncoder(pc, label) {
+  // Query stats after 2 seconds to ensure encoding has started
+  setTimeout(async () => {
+    if (!pc || pc.signalingState === 'closed') return;
+    try {
+      const stats = await pc.getStats();
+      let encoderStr = 'unknown';
+      let mimeType = 'unknown';
+
+      stats.forEach(report => {
+        if (report.type === 'outbound-rtp') {
+          if (report.encoderImplementation) encoderStr = report.encoderImplementation;
+          if (report.codecId) {
+            const codec = stats.get(report.codecId);
+            if (codec && codec.mimeType) mimeType = codec.mimeType;
+          }
+        }
+      });
+      console.log(`[${label} Codec Info] Codec: ${mimeType}, Encoder Implementation: ${encoderStr}`);
+    } catch (err) {
+      console.error(`[${label}] Failed to fetch codec stats:`, err);
+    }
+  }, 2000);
 }

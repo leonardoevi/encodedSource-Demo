@@ -3,7 +3,12 @@
 
 let worker1Port = null;
 let sinkWriter = null;
-let writeCount = 0;
+
+let dropFirstKeyFrame = false;
+
+let dropDeltaFrames = true;
+let deltaFrames = 0;
+let droppedDeltaFrameInterval = 350
 
 // Handle messages from the main thread
 self.onmessage = (event) => {
@@ -19,13 +24,36 @@ self.onmessage = (event) => {
         return;
       }
 
+      // drop first key frame
+      if (frame.type === "key" && dropFirstKeyFrame) {
+        console.log('Worker 2: Dropping first key frame >:) Timestamp: ', frame.timestamp);
+        dropFirstKeyFrame = false;
+        if (typeof frame.close === 'function') {
+          frame.close();
+        }
+        return;
+      }
+
+      // drop delta frame
+      if (dropDeltaFrames && frame.type === "delta") {
+        deltaFrames++;
+        if (deltaFrames % droppedDeltaFrameInterval === 0) {
+          deltaFrames = 0;
+          console.log('Worker 2: Dropping delta frame >:) Timestamp: ', frame.timestamp);
+          if (typeof frame.close === 'function') {
+            frame.close();
+          }
+          return;
+        }
+      }
+
+
       if (sinkWriter) {
         try {
 
-          if (writeCount % 200 === 0) {
-            console.log('Worker 2: Writing frame to sink, ts:', frame.timestamp, 'type:', frame.type);
+          if (frame.type === 'key') {
+            console.log('Worker 2: Writing key frame to sinkWriter, ts:', frame.timestamp);
           }
-          writeCount++;
 
           await sinkWriter.write(frame);
         } catch (err) {

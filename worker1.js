@@ -24,7 +24,6 @@ self.onrtctransform = (event) => {
   const readable = transformer.readable;
   const writable = transformer.writable;
 
-  let frameCount = 0;
   const frameQueue = [];
 
   const transformStream = new TransformStream({
@@ -39,11 +38,6 @@ self.onrtctransform = (event) => {
         // 1. Clone the frame for Worker 2
         // @ts-ignore
         const clonedFrame = new RTCEncodedVideoFrame(encodedFrame);
-
-        if (frameCount % 200 === 0) {
-          console.log('Worker 1: Cloned frame, ts:', clonedFrame.timestamp, 'type:', clonedFrame.type);
-        }
-        frameCount++;
 
         // 2. Pass the ORIGINAL frame through to PC1 immediately
         controller.enqueue(encodedFrame);
