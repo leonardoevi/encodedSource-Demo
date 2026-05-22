@@ -92,6 +92,10 @@ self.onsenderencodedsink = (event) => {
 
     console.log('Worker 2: Successfully obtained writable stream');
     sinkWriter = writable.getWriter();
+
+    encodedSink.onkeyframerequest = (e) => {
+      console.log('Worker 2: onkeyframerequest event intercepted', e);
+    };
   } catch (e) {
     console.error('Worker 2: Error handling onsenderencodedsink:', e);
   }
