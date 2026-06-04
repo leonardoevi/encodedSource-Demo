@@ -2,24 +2,24 @@
 'use strict';
 
 // Configurable buffer size in number of frames (60 frames = ~2 seconds at 30fps)
-const BUFFER_FRAMES = 120;
+const BUFFER_FRAMES = 360;
 
 let worker2Port = null;
 
 // Handle messages from the main thread
 self.onmessage = (event) => {
   if (event.data.port) {
-    console.log('Worker 1: Received port for Worker 2');
+    //console.log('Worker 1: Received port for Worker 2');
     worker2Port = event.data.port;
     worker2Port.onmessage = (e) => {
-      console.log('Worker 1: Received message from Worker 2:', e.data);
+      //console.log('Worker 1: Received message from Worker 2:', e.data);
     };
   }
 };
 
 // Handle the transform
 self.onrtctransform = (event) => {
-  console.log('Worker 1: onrtctransform triggered');
+  //console.log('Worker 1: onrtctransform triggered');
   const transformer = event.transformer;
   const readable = transformer.readable;
   const writable = transformer.writable;

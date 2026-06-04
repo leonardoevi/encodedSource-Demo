@@ -1,6 +1,8 @@
 // main.js
 'use strict';
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 const localVideo = document.getElementById('localVideo');
 const remoteVideo1 = document.getElementById('remoteVideo1');
 const remoteVideo2 = document.getElementById('remoteVideo2');
@@ -20,7 +22,7 @@ let worker1, worker2;
 let messageChannel;
 
 async function start() {
-  console.log('Requesting local stream');
+  //console.log('Requesting local stream');
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
     localVideo.srcObject = localStream;
@@ -36,11 +38,11 @@ async function connect() {
   connectButton.disabled = true;
   hangupButton.disabled = false;
 
-  console.log('Starting workers...');
+  //console.log('Starting workers...');
   worker1 = new Worker('worker1.js');
   worker2 = new Worker('worker2.js');
 
-  console.log('Setting up MessageChannel between workers...');
+  //console.log('Setting up MessageChannel between workers...');
   messageChannel = new MessageChannel();
   
   // Send port 1 to Worker 1, and port 2 to Worker 2
@@ -48,6 +50,8 @@ async function connect() {
   worker2.postMessage({ port: messageChannel.port2 }, [messageChannel.port2]);
 
   const videoTrack = localStream.getVideoTracks()[0];
+
+  await sleep(2000);
 
   // --- Setup PC1 (Usual Connection with Transform) ---
   console.log('Setting up PC1...');
@@ -66,7 +70,7 @@ async function connect() {
 
   // Apply RTCRtpScriptTransform to PC1 sender
   if (window.RTCRtpScriptTransform) {
-    console.log('PC1: Applying RTCRtpScriptTransform');
+    //console.log('PC1: Applying RTCRtpScriptTransform');
     sender1.transform = new RTCRtpScriptTransform(worker1);
   } else {
     console.error('RTCRtpScriptTransform is not supported by this browser.');
@@ -75,7 +79,9 @@ async function connect() {
   // Negotiate PC1
   await negotiate(pc1Local, pc1Remote);
   console.log('PC1 connected.');
-  logUsedEncoder(pc1Local, 'PC1');
+  //logUsedEncoder(pc1Local, 'PC1');
+
+  await sleep(5000);
 
   // --- Setup PC2 (Sink Connection) ---
   console.log('Setting up PC2...');
@@ -88,15 +94,26 @@ async function connect() {
   };
 
   // Create a transceiver to trigger negotiation and get a sender without capturing raw video again
-  const transceiver2 = pc2Local.addTransceiver('video', { direction: 'sendonly' });
-  const sender2 = transceiver2.sender;
+   const transceiver2 = pc2Local.addTransceiver('video', { 
+     direction: 'sendonly',
+     sendEncodings: [
+       {
+         minBitrate: 2_000,
+         maxBitrate: 1_000_000 * 1
+       }
+     ]
+   });
+   const sender2 = transceiver2.sender;
+
+  // Add the normal camera videoTrack directly to PC2
+  //const sender2 = pc2Local.addTrack(videoTrack, localStream);
 
   // Call the new createEncodedSink API on PC2 sender
   if (typeof sender2.createEncodedSink === 'function') {
-    console.log('PC2: Calling createEncodedSink(worker2) on sender');
+    //console.log('PC2: Calling createEncodedSink(worker2) on sender');
     try {
       await sender2.createEncodedSink(worker2);
-      console.log('PC2: createEncodedSink call succeeded (resolved)');
+      //console.log('PC2: createEncodedSink call succeeded (resolved)');
     } catch (e) {
       console.error('PC2: createEncodedSink call failed:', e);
     }
@@ -107,7 +124,7 @@ async function connect() {
   // Negotiate PC2
   await negotiate(pc2Local, pc2Remote);
   console.log('PC2 connected.');
-  logUsedEncoder(pc2Local, 'PC2');
+  //logUsedEncoder(pc2Local, 'PC2');
 
   //startPairMonitoring(pc2Local, pc2Remote, "PC2");
 }

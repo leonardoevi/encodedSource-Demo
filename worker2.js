@@ -6,14 +6,14 @@ let sinkWriter = null;
 
 let dropFirstKeyFrame = false;
 
-let dropDeltaFrames = true;
+let dropDeltaFrames = false;
 let deltaFrames = 0;
-let droppedDeltaFrameInterval = 350
+let droppedDeltaFrameInterval = 500
 
 // Handle messages from the main thread
 self.onmessage = (event) => {
   if (event.data.port) {
-    console.log('Worker 2: Received port for Worker 1');
+    //console.log('Worker 2: Received port for Worker 1');
     worker1Port = event.data.port;
 
     // Handle frames received from Worker 1
@@ -95,6 +95,10 @@ self.onsenderencodedsink = (event) => {
 
     encodedSink.onkeyframerequest = (e) => {
       console.log('Worker 2: onkeyframerequest event intercepted', e);
+    };
+
+    encodedSink.onbandwidthestimate = (e) => {
+      console.log('Worker 2: onbandwidthestimate event intercepted, allocatedBitrate:', encodedSink.allocatedBitrate);
     };
   } catch (e) {
     console.error('Worker 2: Error handling onsenderencodedsink:', e);
