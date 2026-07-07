@@ -10,15 +10,44 @@ const remoteVideo2 = document.getElementById('remoteVideo2');
 const startButton = document.getElementById('startButton');
 const connectButton = document.getElementById('connectButton');
 const hangupButton = document.getElementById('hangupButton');
+const requestKeyframeButton1 = document.getElementById('requestKeyframeButton1');
+const requestKeyframeButton = document.getElementById('requestKeyframeButton');
+const dropNextFrameButton = document.getElementById('dropNextFrameButton');
+const dropAllToggle = document.getElementById('dropAllToggle');
 
 startButton.onclick = start;
 connectButton.onclick = connect;
 hangupButton.onclick = hangup;
 
+requestKeyframeButton1.onclick = () => {
+  if (worker4) {
+    worker4.postMessage({ type: 'requestKeyframe' });
+  }
+};
+
+requestKeyframeButton.onclick = () => {
+  if (worker3) {
+    worker3.postMessage({ type: 'requestKeyframe' });
+  }
+};
+
+dropNextFrameButton.onclick = () => {
+  if (worker2) {
+    dropNextFrameButton.disabled = true;
+    worker2.postMessage({ type: 'dropNextFrame' });
+  }
+};
+
+dropAllToggle.onchange = () => {
+  if (worker2) {
+    worker2.postMessage({ dropAllFrames: dropAllToggle.checked });
+  }
+};
+
 let localStream;
 let pc1Local, pc1Remote;
 let pc2Local, pc2Remote;
-let worker1, worker2;
+let worker1, worker2, worker3, worker4;
 let messageChannel;
 
 async function start() {
@@ -41,6 +70,14 @@ async function connect() {
   //console.log('Starting workers...');
   worker1 = new Worker('worker1.js');
   worker2 = new Worker('worker2.js');
+  worker3 = new Worker('worker3.js');
+  worker4 = new Worker('worker4.js');
+
+  worker2.onmessage = (e) => {
+    if (e.data.type === 'frameDropped') {
+      dropNextFrameButton.disabled = false;
+    }
+  };
 
   //console.log('Setting up MessageChannel between workers...');
   messageChannel = new MessageChannel();
@@ -48,6 +85,7 @@ async function connect() {
   // Send port 1 to Worker 1, and port 2 to Worker 2
   worker1.postMessage({ port: messageChannel.port1 }, [messageChannel.port1]);
   worker2.postMessage({ port: messageChannel.port2 }, [messageChannel.port2]);
+  worker2.postMessage({ dropAllFrames: dropAllToggle.checked });
 
   const videoTrack = localStream.getVideoTracks()[0];
 
@@ -61,6 +99,14 @@ async function connect() {
   pc1Remote.ontrack = (e) => {
     console.log('PC1: Received remote track');
     remoteVideo1.srcObject = e.streams[0];
+
+    // Apply RTCRtpScriptTransform to PC1 receiver
+    if (window.RTCRtpScriptTransform) {
+      console.log('PC1: Applying RTCRtpScriptTransform to receiver (Worker 4)');
+      e.receiver.transform = new RTCRtpScriptTransform(worker4);
+    } else {
+      console.error('RTCRtpScriptTransform is not supported by this browser.');
+    }
   };
 
   //startPairMonitoring(pc1Local, pc1Remote, "PC1");
@@ -76,13 +122,6 @@ async function connect() {
     console.error('RTCRtpScriptTransform is not supported by this browser.');
   }
 
-  // Negotiate PC1
-  await negotiate(pc1Local, pc1Remote);
-  console.log('PC1 connected.');
-  //logUsedEncoder(pc1Local, 'PC1');
-
-  await sleep(5000);
-
   // --- Setup PC2 (Sink Connection) ---
   console.log('Setting up PC2...');
   pc2Local = new RTCPeerConnection();
@@ -91,22 +130,41 @@ async function connect() {
   pc2Remote.ontrack = (e) => {
     console.log('PC2: Received remote track');
     remoteVideo2.srcObject = e.streams[0] || new MediaStream([e.track]);
+
+    // Apply RTCRtpScriptTransform to PC2 receiver
+    if (window.RTCRtpScriptTransform) {
+      console.log('PC2: Applying RTCRtpScriptTransform to receiver (Worker 3)');
+      e.receiver.transform = new RTCRtpScriptTransform(worker3);
+    } else {
+      console.error('RTCRtpScriptTransform is not supported by this browser.');
+    }
   };
 
   // Create a transceiver to trigger negotiation and get a sender without capturing raw video again
-   const transceiver2 = pc2Local.addTransceiver('video', { 
-     direction: 'sendonly',
-     sendEncodings: [
-       {
-         minBitrate: 2_000,
-         maxBitrate: 1_000_000 * 1
-       }
-     ]
-   });
-   const sender2 = transceiver2.sender;
+  let minBitrate = 2_000;
+  let maxBitrate = 5_000_000;
+  console.log('PC2: Adding transceiver with minBitrate:', minBitrate, 'maxBitrate:', maxBitrate);
+  const transceiver2 = pc2Local.addTransceiver('video', { 
+    direction: 'sendonly',
+    sendEncodings: [
+      {
+        minBitrate: minBitrate,
+        maxBitrate: maxBitrate * 1
+      }
+    ]
+  });
+  const sender2 = transceiver2.sender;
 
   // Add the normal camera videoTrack directly to PC2
   //const sender2 = pc2Local.addTrack(videoTrack, localStream);
+
+  // Apply RTCRtpScriptTransform to PC2 sender
+  if (window.RTCRtpScriptTransform) {
+    console.log('PC2: Applying RTCRtpScriptTransform');
+    sender2.transform = new RTCRtpScriptTransform(worker2);
+  } else {
+    console.error('RTCRtpScriptTransform is not supported by this browser.');
+  }
 
   // Call the new createEncodedSink API on PC2 sender
   if (typeof sender2.createEncodedSink === 'function') {
@@ -116,12 +174,17 @@ async function connect() {
       //console.log('PC2: createEncodedSink call succeeded (resolved)');
     } catch (e) {
       console.error('PC2: createEncodedSink call failed:', e);
+      return;
     }
   } else {
     console.warn('PC2: RTCRtpSender.createEncodedSink is not supported/implemented in this browser.');
+    return;
   }
 
-  // Negotiate PC2
+  // Once await sender2.createEncodedSink(worker2) has resolved successfully, negotiate both PCs:
+  await negotiate(pc1Local, pc1Remote);
+  console.log('PC1 connected.');
+
   await negotiate(pc2Local, pc2Remote);
   console.log('PC2 connected.');
   //logUsedEncoder(pc2Local, 'PC2');
@@ -162,7 +225,9 @@ function hangup() {
 
   if (worker1) worker1.terminate();
   if (worker2) worker2.terminate();
-  worker1 = worker2 = null;
+  if (worker3) worker3.terminate();
+  if (worker4) worker4.terminate();
+  worker1 = worker2 = worker3 = worker4 = null;
 
   if (localStream) {
     localStream.getTracks().forEach(track => track.stop());

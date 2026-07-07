@@ -4,14 +4,27 @@
 let worker1Port = null;
 let sinkWriter = null;
 
-let dropFirstKeyFrame = false;
+let dropNextFrame = false;
 
-let dropDeltaFrames = false;
-let deltaFrames = 0;
-let droppedDeltaFrameInterval = 500
+let injectOnce = false
+let stopInjection = false;
+
+let dropAllFrames = false;
 
 // Handle messages from the main thread
 self.onmessage = (event) => {
+  if (event.data.type === 'dropNextFrame') {
+    dropNextFrame = true;
+    console.log('Worker 2: Scheduled to drop the next frame.');
+    return;
+  }
+
+  if (event.data.dropAllFrames !== undefined) {
+    dropAllFrames = event.data.dropAllFrames;
+    console.log('Worker 2: dropAllFrames toggled to', dropAllFrames);
+    return;
+  }
+
   if (event.data.port) {
     //console.log('Worker 2: Received port for Worker 1');
     worker1Port = event.data.port;
@@ -24,27 +37,52 @@ self.onmessage = (event) => {
         return;
       }
 
-      // drop first key frame
-      if (frame.type === "key" && dropFirstKeyFrame) {
-        console.log('Worker 2: Dropping first key frame >:) Timestamp: ', frame.timestamp);
-        dropFirstKeyFrame = false;
+      if (dropAllFrames) {
         if (typeof frame.close === 'function') {
           frame.close();
         }
         return;
       }
 
-      // drop delta frame
-      if (dropDeltaFrames && frame.type === "delta") {
-        deltaFrames++;
-        if (deltaFrames % droppedDeltaFrameInterval === 0) {
-          deltaFrames = 0;
-          console.log('Worker 2: Dropping delta frame >:) Timestamp: ', frame.timestamp);
-          if (typeof frame.close === 'function') {
-            frame.close();
+      if (dropNextFrame) {
+        dropNextFrame = false;
+        
+        let metadata = {};
+        try {
+          if (typeof frame.getMetadata === 'function') {
+            metadata = frame.getMetadata();
           }
-          return;
+        } catch (err) {
+          console.error('Worker 2: Error getting metadata:', err);
         }
+
+        console.log('Worker 2: Dropping frame >:)', {
+          timestamp: frame.timestamp,
+          type: frame.type,
+          byteLength: frame.data ? frame.data.byteLength : 0,
+          metadata: metadata
+        });
+
+        if (typeof frame.close === 'function') {
+          frame.close();
+        }
+        
+        // Let the main thread know we dropped the frame so it can reset the button
+        self.postMessage({ type: 'frameDropped' });
+        return;
+      }
+
+      if (stopInjection) {
+          if (typeof frame.close === 'function') {
+          frame.close();
+        }
+        return;
+      }
+
+      if (injectOnce) {
+        stopInjection = true;
+        console.log('Worker 2: Injecting first frame, dropping all subsequent frames. Timestamp: ', frame.timestamp);
+        injectOnce = false;
       }
 
 
@@ -63,7 +101,7 @@ self.onmessage = (event) => {
           }
         }
       } else {
-        //console.warn('Worker 2: Received frame but sinkWriter is not ready yet. Frame lost.');
+        console.warn('Worker 2: Received frame but sinkWriter is not ready yet. Frame lost.');
         if (typeof frame.close === 'function') {
           console.log('Worker 2: Discarding frame. Timestamp: ', frame.timestamp);
           frame.close();
@@ -103,6 +141,33 @@ self.onsenderencodedsink = (event) => {
   } catch (e) {
     console.error('Worker 2: Error handling onsenderencodedsink:', e);
   }
+};
+
+// Handle the transform (compatibility test)
+self.onrtctransform = (event) => {
+  console.log('Worker 2: onrtctransform triggered');
+  const transformer = event.transformer;
+  const readable = transformer.readable;
+  const writable = transformer.writable;
+
+  let transformFrameCount = 0;
+
+  const transformStream = new TransformStream({
+    transform(encodedFrame, controller) {
+      transformFrameCount++;
+      if (transformFrameCount % 30 === 0) {
+        try {
+          const metadata = encodedFrame.getMetadata();
+          //console.log(`Worker 2 Transform: Frame #${transformFrameCount}, rtpTimestamp: ${metadata ? metadata.rtpTimestamp : 'unknown'}`);
+        } catch (e) {
+          console.error('Worker 2 Transform: Failed to get metadata:', e);
+        }
+      }
+      controller.enqueue(encodedFrame);
+    }
+  });
+
+  readable.pipeThrough(transformStream).pipeTo(writable);
 };
 
 

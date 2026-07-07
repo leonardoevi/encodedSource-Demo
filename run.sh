@@ -1,5 +1,7 @@
 #!/bin/bash
 
+kill -9 $(lsof -t -i:8000)
+
 # Get the directory of this script
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
@@ -14,7 +16,7 @@ sleep 1
 rm -rf "$DIR/chrome_dev_profile/Default/Cache" "$DIR/chrome_dev_profile/Default/Code Cache" "$DIR/chrome_dev_profile/Default/Storage" "$DIR/chrome_dev_profile/Default/Service Worker"
 
 # Start custom chrome with fake media stream flags and open the test page
-"$DIR/../../chromium/src/out/Default/chrome" \
+"$DIR/../../chromium/src/out/Default/Chromium.app/Contents/MacOS/Chromium" \
   --user-data-dir="$DIR/chrome_dev_profile" \
   --no-first-run \
   --auto-open-devtools-for-tabs \
@@ -28,5 +30,6 @@ rm -rf "$DIR/chrome_dev_profile/Default/Cache" "$DIR/chrome_dev_profile/Default/
 # When chrome is terminated, kill the server
 kill $SERVER_PID
 pkill -f "python3 -m http.server 8000"
+kill -9 $(lsof -t -i:8000)
 
 echo "Killed http server."

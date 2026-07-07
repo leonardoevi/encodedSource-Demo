@@ -1,8 +1,8 @@
 // worker1.js - Interceptor Worker
 'use strict';
 
-// Configurable buffer size in number of frames (60 frames = ~2 seconds at 30fps)
-const BUFFER_FRAMES = 360;
+// Configurable buffer size in number of frames (60 frames = ~3 seconds at 20fps)
+const BUFFER_FRAMES = 60;
 
 let worker2Port = null;
 
