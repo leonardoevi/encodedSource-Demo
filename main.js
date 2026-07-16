@@ -1,8 +1,6 @@
 // main.js
 'use strict';
 
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-
 const localVideo = document.getElementById('localVideo');
 const remoteVideo1 = document.getElementById('remoteVideo1');
 const remoteVideo2 = document.getElementById('remoteVideo2');
@@ -10,56 +8,31 @@ const remoteVideo2 = document.getElementById('remoteVideo2');
 const startButton = document.getElementById('startButton');
 const connectButton = document.getElementById('connectButton');
 const hangupButton = document.getElementById('hangupButton');
-const requestKeyframeButton1 = document.getElementById('requestKeyframeButton1');
-const requestKeyframeButton = document.getElementById('requestKeyframeButton');
-const dropNextFrameButton = document.getElementById('dropNextFrameButton');
-const dropAllToggle = document.getElementById('dropAllToggle');
 
 startButton.onclick = start;
 connectButton.onclick = connect;
 hangupButton.onclick = hangup;
 
-requestKeyframeButton1.onclick = () => {
-  if (worker4) {
-    worker4.postMessage({ type: 'requestKeyframe' });
-  }
-};
-
-requestKeyframeButton.onclick = () => {
-  if (worker3) {
-    worker3.postMessage({ type: 'requestKeyframe' });
-  }
-};
-
-dropNextFrameButton.onclick = () => {
-  if (worker2) {
-    dropNextFrameButton.disabled = true;
-    worker2.postMessage({ type: 'dropNextFrame' });
-  }
-};
-
-dropAllToggle.onchange = () => {
-  if (worker2) {
-    worker2.postMessage({ dropAllFrames: dropAllToggle.checked });
-  }
-};
-
 let localStream;
 let pc1Local, pc1Remote;
 let pc2Local, pc2Remote;
-let worker1, worker2, worker3, worker4;
-let messageChannel;
+let videoWorker, audioWorker;
+
+// Helper sleep function
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function start() {
-  //console.log('Requesting local stream');
+  console.log('Requesting local media stream (video + audio)');
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    // Request both camera and microphone
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideo.srcObject = localStream;
+
     startButton.disabled = true;
     connectButton.disabled = false;
   } catch (e) {
     console.error('getUserMedia() failed:', e);
-    alert('Could not acquire camera stream.');
+    alert('Could not acquire local camera/mic stream.');
   }
 }
 
@@ -67,140 +40,97 @@ async function connect() {
   connectButton.disabled = true;
   hangupButton.disabled = false;
 
-  //console.log('Starting workers...');
-  worker1 = new Worker('worker1.js');
-  worker2 = new Worker('worker2.js');
-  worker3 = new Worker('worker3.js');
-  worker4 = new Worker('worker4.js');
+  console.log('Starting workers...');
+  // Use timestamp query params to completely bypass browser caching for workers
+  videoWorker = new Worker('video_worker.js?t=' + Date.now());
+  audioWorker = new Worker('audio_worker.js?t=' + Date.now());
 
-  worker2.onmessage = (e) => {
-    if (e.data.type === 'frameDropped') {
-      dropNextFrameButton.disabled = false;
-    }
-  };
+  // Wait briefly for worker initialization
+  await sleep(500);
 
-  //console.log('Setting up MessageChannel between workers...');
-  messageChannel = new MessageChannel();
-  
-  // Send port 1 to Worker 1, and port 2 to Worker 2
-  worker1.postMessage({ port: messageChannel.port1 }, [messageChannel.port1]);
-  worker2.postMessage({ port: messageChannel.port2 }, [messageChannel.port2]);
-  worker2.postMessage({ dropAllFrames: dropAllToggle.checked });
-
-  const videoTrack = localStream.getVideoTracks()[0];
-
-  await sleep(2000);
-
-  // --- Setup PC1 (Usual Connection with Transform) ---
-  console.log('Setting up PC1...');
+  // --- Setup PC1 (Normal Connection with Transform) ---
+  console.log('Setting up standard PC pair...');
   pc1Local = new RTCPeerConnection();
   pc1Remote = new RTCPeerConnection();
 
   pc1Remote.ontrack = (e) => {
-    console.log('PC1: Received remote track');
     remoteVideo1.srcObject = e.streams[0];
-
-    // Apply RTCRtpScriptTransform to PC1 receiver
-    if (window.RTCRtpScriptTransform) {
-      console.log('PC1: Applying RTCRtpScriptTransform to receiver (Worker 4)');
-      e.receiver.transform = new RTCRtpScriptTransform(worker4);
-    } else {
-      console.error('RTCRtpScriptTransform is not supported by this browser.');
-    }
   };
 
-  //startPairMonitoring(pc1Local, pc1Remote, "PC1");
+  // Add tracks to PC1 local from our localStream
+  const videoTrack = localStream.getVideoTracks()[0];
+  const audioTrack = localStream.getAudioTracks()[0];
 
-  // Add track to PC1 local
-  const sender1 = pc1Local.addTrack(videoTrack, localStream);
+  const pc1VideoSender = pc1Local.addTrack(videoTrack, localStream);
+  const pc1AudioSender = pc1Local.addTrack(audioTrack, localStream);
 
-  // Apply RTCRtpScriptTransform to PC1 sender
+  // Apply RTCRtpScriptTransform to PC1 senders
   if (window.RTCRtpScriptTransform) {
-    //console.log('PC1: Applying RTCRtpScriptTransform');
-    sender1.transform = new RTCRtpScriptTransform(worker1);
+    console.log('PC1: Applying RTCRtpScriptTransform to senders');
+    pc1VideoSender.transform = new RTCRtpScriptTransform(videoWorker);
+    pc1AudioSender.transform = new RTCRtpScriptTransform(audioWorker);
   } else {
     console.error('RTCRtpScriptTransform is not supported by this browser.');
   }
 
-  // --- Setup PC2 (Sink Connection) ---
-  console.log('Setting up PC2...');
+  // --- Setup PC2 (Injected Connection) ---
+  console.log('Setting up PC2 (Injected Pair)...');
   pc2Local = new RTCPeerConnection();
   pc2Remote = new RTCPeerConnection();
 
   pc2Remote.ontrack = (e) => {
     console.log('PC2: Received remote track');
-    remoteVideo2.srcObject = e.streams[0] || new MediaStream([e.track]);
-
-    // Apply RTCRtpScriptTransform to PC2 receiver
-    if (window.RTCRtpScriptTransform) {
-      console.log('PC2: Applying RTCRtpScriptTransform to receiver (Worker 3)');
-      e.receiver.transform = new RTCRtpScriptTransform(worker3);
-    } else {
-      console.error('RTCRtpScriptTransform is not supported by this browser.');
+    // PC2 remote might receive tracks individually, bind them to a MediaStream
+    if (!remoteVideo2.srcObject) {
+      remoteVideo2.srcObject = new MediaStream();
     }
+    remoteVideo2.srcObject.addTrack(e.track);
   };
 
-  // Create a transceiver to trigger negotiation and get a sender without capturing raw video again
-  let minBitrate = 2_000;
-  let maxBitrate = 5_000_000;
-  console.log('PC2: Adding transceiver with minBitrate:', minBitrate, 'maxBitrate:', maxBitrate);
-  const transceiver2 = pc2Local.addTransceiver('video', { 
-    direction: 'sendonly',
-    sendEncodings: [
-      {
-        minBitrate: minBitrate,
-        maxBitrate: maxBitrate * 1
-      }
-    ]
-  });
-  const sender2 = transceiver2.sender;
+  // Create sendonly transceivers on PC2 local to negotiate sending capabilities
+  // without attaching actual hardware camera/mic tracks.
+  console.log('PC2: Adding transceivers for video and audio');
+  const pc2VideoTransceiver = pc2Local.addTransceiver('video', { direction: 'sendonly' });
+  const pc2AudioTransceiver = pc2Local.addTransceiver('audio', { direction: 'sendonly' });
 
-  // Add the normal camera videoTrack directly to PC2
-  //const sender2 = pc2Local.addTrack(videoTrack, localStream);
+  const pc2VideoSender = pc2VideoTransceiver.sender;
+  const pc2AudioSender = pc2AudioTransceiver.sender;
 
-  // Apply RTCRtpScriptTransform to PC2 sender
-  if (window.RTCRtpScriptTransform) {
-    console.log('PC2: Applying RTCRtpScriptTransform to sender (Worker 2)');
-    sender2.transform = new RTCRtpScriptTransform(worker2);
-  } else {
-    console.error('RTCRtpScriptTransform is not supported by this browser.');
-  }
-
-  // Call the new createEncodedSink API on PC2 sender
-  if (typeof sender2.createEncodedSink === 'function') {
-    //console.log('PC2: Calling createEncodedSink(worker2) on sender');
+  // Call the new createEncodedSink API on PC2 senders to receive injected frames
+  if (typeof pc2VideoSender.createEncodedSink === 'function' &&
+    typeof pc2AudioSender.createEncodedSink === 'function') {
+    console.log('PC2: Registering encoded sinks on senders...');
     try {
-      await sender2.createEncodedSink(worker2);
-      //console.log('PC2: createEncodedSink call succeeded (resolved)');
-    } catch (e) {
-      console.error('PC2: createEncodedSink call failed:', e);
+      await pc2VideoSender.createEncodedSink(videoWorker);
+      await pc2AudioSender.createEncodedSink(audioWorker);
+      console.log('PC2: createEncodedSink calls succeeded');
+    } catch (err) {
+      console.error('PC2: createEncodedSink registration failed:', err);
       return;
     }
   } else {
-    console.warn('PC2: RTCRtpSender.createEncodedSink is not supported/implemented in this browser.');
+    console.error('PC2: RTCRtpSender.createEncodedSink is not supported in this browser.');
+    alert('RTCRtpSender.createEncodedSink is not supported in this browser.');
     return;
   }
 
-  // Once await sender2.createEncodedSink(worker2) has resolved successfully, negotiate both PCs:
+  // Negotiate connections for both PeerConnection pairs
   await negotiate(pc1Local, pc1Remote);
   console.log('PC1 connected.');
 
   await negotiate(pc2Local, pc2Remote);
   console.log('PC2 connected.');
-  //logUsedEncoder(pc2Local, 'PC2');
-
-  //startPairMonitoring(pc2Local, pc2Remote, "PC2");
 }
 
 async function negotiate(pcLocal, pcRemote) {
   pcLocal.onicecandidate = (e) => {
     if (e.candidate) {
-      pcRemote.addIceCandidate(e.candidate).catch(err => console.error('Error adding ICE candidate to remote:', err));
+      pcRemote.addIceCandidate(e.candidate).catch(err => console.error('Error adding ICE candidate:', err));
     }
   };
   pcRemote.onicecandidate = (e) => {
     if (e.candidate) {
-      pcLocal.addIceCandidate(e.candidate).catch(err => console.error('Error adding ICE candidate to local:', err));
+      pcLocal.addIceCandidate(e.candidate).catch(err => console.error('Error adding ICE candidate:', err));
     }
   };
 
@@ -214,7 +144,7 @@ async function negotiate(pcLocal, pcRemote) {
 }
 
 function hangup() {
-  console.log('Ending call');
+  console.log('Ending call and cleanup');
   
   if (pc1Local) pc1Local.close();
   if (pc1Remote) pc1Remote.close();
@@ -223,11 +153,9 @@ function hangup() {
   
   pc1Local = pc1Remote = pc2Local = pc2Remote = null;
 
-  if (worker1) worker1.terminate();
-  if (worker2) worker2.terminate();
-  if (worker3) worker3.terminate();
-  if (worker4) worker4.terminate();
-  worker1 = worker2 = worker3 = worker4 = null;
+  if (videoWorker) videoWorker.terminate();
+  if (audioWorker) audioWorker.terminate();
+  videoWorker = audioWorker = null;
 
   if (localStream) {
     localStream.getTracks().forEach(track => track.stop());
@@ -241,123 +169,4 @@ function hangup() {
   startButton.disabled = false;
   connectButton.disabled = true;
   hangupButton.disabled = true;
-}
-
-function startPairMonitoring(pcLocal, pcRemote, label) {
-  let prevStatsLocal = new Map();
-  let prevStatsRemote = new Map();
-
-  setInterval(async () => {
-    if (pcLocal.signalingState === "closed" || pcRemote.signalingState === "closed") return;
-
-    try {
-      const [statsLocal, statsRemote] = await Promise.all([pcLocal.getStats(), pcRemote.getStats()]);
-
-      let txLog = "  [TX] No media stats";
-      let rxLog = "  [RX] No media stats";
-
-      const processTx = (report) => {
-        const currentBytes = report.bytesSent || 0;
-        const currentTimestamp = report.timestamp;
-        const prev = prevStatsLocal.get(report.id) || {};
-        const timeDiffSec = prev.timestamp ? (currentTimestamp - prev.timestamp) / 1000 : 0;
-
-        if (timeDiffSec > 0 && prev.bytesSent !== undefined) {
-          const bytesPerSec = (currentBytes - prev.bytesSent) / timeDiffSec;
-          const kbps = (bytesPerSec * 8) / 1000;
-          txLog = `  [TX: ${report.type}] Bitrate: ${kbps.toFixed(2)} kbps (${Math.round(bytesPerSec)} B/s) | Total Sent: ${currentBytes}`;
-        } else {
-          txLog = `  [TX: ${report.type}] Total Sent: ${currentBytes}`;
-        }
-        prev.bytesSent = currentBytes;
-        prev.timestamp = currentTimestamp;
-        prevStatsLocal.set(report.id, prev);
-      };
-
-      const processRx = (report) => {
-        const currentBytes = report.bytesReceived || 0;
-        const currentFramesDecoded = report.framesDecoded;
-        const currentTimestamp = report.timestamp;
-        const prev = prevStatsRemote.get(report.id) || {};
-        const timeDiffSec = prev.timestamp ? (currentTimestamp - prev.timestamp) / 1000 : 0;
-
-        if (timeDiffSec > 0 && prev.bytesReceived !== undefined) {
-          const bytesPerSec = (currentBytes - prev.bytesReceived) / timeDiffSec;
-          const kbps = (bytesPerSec * 8) / 1000;
-          let framesStr = currentFramesDecoded !== undefined ? ` | Decoded: ${currentFramesDecoded}` : '';
-          if (currentFramesDecoded !== undefined && prev.framesDecoded !== undefined) {
-            const fps = Math.round((currentFramesDecoded - prev.framesDecoded) / timeDiffSec);
-            framesStr += ` (${fps} fps)`;
-          }
-          rxLog = `  [RX: ${report.type}] Bitrate: ${kbps.toFixed(2)} kbps (${Math.round(bytesPerSec)} B/s)${framesStr} | Total Recv: ${currentBytes}`;
-        } else {
-          let framesStr = currentFramesDecoded !== undefined ? ` | Decoded: ${currentFramesDecoded}` : '';
-          rxLog = `  [RX: ${report.type}] Total Recv: ${currentBytes}${framesStr}`;
-        }
-        prev.bytesReceived = currentBytes;
-        if (currentFramesDecoded !== undefined) prev.framesDecoded = currentFramesDecoded;
-        prev.timestamp = currentTimestamp;
-        prevStatsRemote.set(report.id, prev);
-      };
-
-      let foundTx = false;
-      statsLocal.forEach(report => {
-        if (report.type === 'outbound-rtp') {
-          foundTx = true;
-          processTx(report);
-        }
-      });
-      if (!foundTx) {
-        statsLocal.forEach(report => {
-          if (report.type === 'transport' && report.bytesSent > 0) {
-            processTx(report);
-          }
-        });
-      }
-
-      let foundRx = false;
-      statsRemote.forEach(report => {
-        if (report.type === 'inbound-rtp') {
-          foundRx = true;
-          processRx(report);
-        }
-      });
-      if (!foundRx) {
-        statsRemote.forEach(report => {
-          if (report.type === 'transport' && report.bytesReceived > 0) {
-            processRx(report);
-          }
-        });
-      }
-
-      console.log(`\n=== [${label} Stats] State: Local(${pcLocal.connectionState}) / Remote(${pcRemote.connectionState}) ===\n${txLog}\n${rxLog}\n===============================================================`);
-    } catch (err) {
-      console.error(`[${label}] getStats error:`, err);
-    }
-  }, 3000); // Check every 3 seconds
-}
-
-function logUsedEncoder(pc, label) {
-  // Query stats after 2 seconds to ensure encoding has started
-  setTimeout(async () => {
-    if (!pc || pc.signalingState === 'closed') return;
-    try {
-      const stats = await pc.getStats();
-      let encoderStr = 'unknown';
-      let mimeType = 'unknown';
-
-      stats.forEach(report => {
-        if (report.type === 'outbound-rtp') {
-          if (report.encoderImplementation) encoderStr = report.encoderImplementation;
-          if (report.codecId) {
-            const codec = stats.get(report.codecId);
-            if (codec && codec.mimeType) mimeType = codec.mimeType;
-          }
-        }
-      });
-      console.log(`[${label} Codec Info] Codec: ${mimeType}, Encoder Implementation: ${encoderStr}`);
-    } catch (err) {
-      console.error(`[${label}] Failed to fetch codec stats:`, err);
-    }
-  }, 2000);
 }

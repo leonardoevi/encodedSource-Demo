@@ -9,7 +9,9 @@ cd "$DIR" || exit 1
   --user-data-dir="$DIR/chrome_dev_profile" \
   --no-first-run \
   --use-fake-device-for-media-stream \
+  --use-fake-ui-for-media-stream \
   --enable-logging=stderr \
   --log-level=0 \
   --disable-http-cache \
+  --auto-open-devtools-for-tabs \
   http://localhost:8000/
