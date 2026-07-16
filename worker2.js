@@ -136,7 +136,7 @@ self.onsenderencodedsink = (event) => {
     };
 
     encodedSink.onbandwidthestimate = (e) => {
-      console.log('Worker 2: onbandwidthestimate event intercepted, allocatedBitrate:', encodedSink.allocatedBitrate);
+      console.log('Worker 2: onbandwidthestimate event intercepted, allocatedBitrate:', encodedSink.allocatedBitrate, 'availableOutgoingBitrate:', encodedSink.availableOutgoingBitrate);
     };
   } catch (e) {
     console.error('Worker 2: Error handling onsenderencodedsink:', e);

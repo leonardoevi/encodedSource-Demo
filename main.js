@@ -160,7 +160,7 @@ async function connect() {
 
   // Apply RTCRtpScriptTransform to PC2 sender
   if (window.RTCRtpScriptTransform) {
-    console.log('PC2: Applying RTCRtpScriptTransform');
+    console.log('PC2: Applying RTCRtpScriptTransform to sender (Worker 2)');
     sender2.transform = new RTCRtpScriptTransform(worker2);
   } else {
     console.error('RTCRtpScriptTransform is not supported by this browser.');
