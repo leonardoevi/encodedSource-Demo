@@ -14,6 +14,14 @@ self.onsenderencodedsink = (event) => {
     }
     sinkWriter = encodedSink.writable.getWriter();
     console.log('Video Worker: Obtained writable stream writer for PC2 video');
+
+    encodedSink.onkeyframerequest = (e) => {
+      console.log('Video Worker: onkeyframerequest event intercepted');
+    };
+    encodedSink.onbandwidthestimate = (e) => {
+      console.log('Video Worker: onbandwidthestimate event intercepted, allocatedBitrate:', encodedSink.allocatedBitrate, 'availableOutgoingBitrate:', encodedSink.availableOutgoingBitrate);
+    };
+
   } catch (err) {
     console.error('Video Worker: Error setting up encoded sink writer:', err);
   }

@@ -14,6 +14,14 @@ self.onsenderencodedsink = (event) => {
     }
     sinkWriter = encodedSink.writable.getWriter();
     console.log('Audio Worker: Obtained writable stream writer for PC2 audio');
+
+    encodedSink.onkeyframerequest = (e) => {
+      console.log('Audio Worker: onkeyframerequest event intercepted');
+    };
+    encodedSink.onbandwidthestimate = (e) => {
+      console.log('Audio Worker: onbandwidthestimate event intercepted, allocatedBitrate:', encodedSink.allocatedBitrate, 'availableOutgoingBitrate:', encodedSink.availableOutgoingBitrate);
+    };
+    
   } catch (err) {
     console.error('Audio Worker: Error setting up encoded sink writer:', err);
   }
