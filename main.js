@@ -134,6 +134,39 @@ async function connect() {
     return;
   }
 
+  // Prefer AV1 codec for both connections
+  if (typeof RTCRtpReceiver !== 'undefined' && RTCRtpReceiver.getCapabilities) {
+    const capabilities = RTCRtpReceiver.getCapabilities('video');
+    if (capabilities && capabilities.codecs) {
+      const av1Codecs = capabilities.codecs.filter(
+        codec => codec.mimeType.toLowerCase() === 'video/av1'
+      );
+      const otherCodecs = capabilities.codecs.filter(
+        codec => codec.mimeType.toLowerCase() !== 'video/av1'
+      );
+      const preferredCodecs = [...av1Codecs, ...otherCodecs];
+
+      const pc1VideoTransceiver = pc1Local.getTransceivers().find(t => t.sender === pc1VideoSender);
+      if (pc1VideoTransceiver && 'setCodecPreferences' in pc1VideoTransceiver) {
+        try {
+          pc1VideoTransceiver.setCodecPreferences(preferredCodecs);
+          console.log('PC1: Set AV1 as preferred codec.');
+        } catch (e) {
+          console.error('PC1: Failed to set codec preferences:', e);
+        }
+      }
+
+      if (pc2VideoTransceiver && 'setCodecPreferences' in pc2VideoTransceiver) {
+        try {
+          pc2VideoTransceiver.setCodecPreferences(preferredCodecs);
+          console.log('PC2: Set AV1 as preferred codec.');
+        } catch (e) {
+          console.error('PC2: Failed to set codec preferences:', e);
+        }
+      }
+    }
+  }
+
   // Negotiate connections for both PeerConnection pairs
   await negotiate(pc1Local, pc1Remote);
   console.log('PC1 connected.');
