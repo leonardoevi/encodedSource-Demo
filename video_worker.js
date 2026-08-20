@@ -3,23 +3,23 @@
 
 let sinkWriter = null;
 
-// This event is triggered when PC2 sender calls createEncodedSink(videoWorker)
-self.onsenderencodedsink = (event) => {
-  console.log('Video Worker: onsenderencodedsink triggered');
+// This event is triggered when PC2 sender calls createEncodedSource(videoWorker)
+self.onsenderencodedsource = (event) => {
+  console.log('Video Worker: onsenderencodedsource triggered');
   try {
-    const encodedSink = event.encodedSink;
-    if (!encodedSink || !encodedSink.writable) {
-      console.error('Video Worker: invalid encodedSink or writable');
+    const encodedSource = event.encodedSource;
+    if (!encodedSource || !encodedSource.writable) {
+      console.error('Video Worker: invalid encodedSource or writable');
       return;
     }
-    sinkWriter = encodedSink.writable.getWriter();
+    sinkWriter = encodedSource.writable.getWriter();
     console.log('Video Worker: Obtained writable stream writer for PC2 video');
 
-    encodedSink.onkeyframerequest = (e) => {
+    encodedSource.onkeyframerequest = (e) => {
       console.log('Video Worker: onkeyframerequest event intercepted');
     };
-    encodedSink.onbandwidthestimate = (e) => {
-      console.log('Video Worker: onbandwidthestimate event intercepted, allocatedBitrate:', encodedSink.allocatedBitrate, 'availableOutgoingBitrate:', encodedSink.availableOutgoingBitrate);
+    encodedSource.onbitrateinfochange = (e) => {
+      console.log('Video Worker: onbitrateinfochange event intercepted, allocatedBitrate:', encodedSource.allocatedBitrate, 'availableOutgoingBitrate:', encodedSource.availableOutgoingBitrate);
     };
 
   } catch (err) {

@@ -8,10 +8,10 @@ cd "$DIR" || exit 1
 "$DIR/../../chromium/src/out/Default/Chromium.app/Contents/MacOS/Chromium" \
   --user-data-dir="$DIR/chrome_dev_profile" \
   --no-first-run \
-  --use-fake-device-for-media-stream \
   --use-fake-ui-for-media-stream \
-  --enable-logging=stderr \
-  --log-level=0 \
   --disable-http-cache \
   --auto-open-devtools-for-tabs \
+  --enable-blink-features=RTCEncodedSource \
   http://localhost:8000/
+
+  #--use-fake-device-for-media-stream \

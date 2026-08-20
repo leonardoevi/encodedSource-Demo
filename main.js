@@ -16,7 +16,7 @@ hangupButton.onclick = hangup;
 let localStream;
 let pc1Local, pc1Remote;
 let pc2Local, pc2Remote;
-let videoWorker, audioWorker;
+let videoWorker, audioWorker, audioReceiverWorker, videoReceiverWorker;
 
 // Helper sleep function
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -44,6 +44,17 @@ async function connect() {
   // Use timestamp query params to completely bypass browser caching for workers
   videoWorker = new Worker('video_worker.js?t=' + Date.now());
   audioWorker = new Worker('audio_worker.js?t=' + Date.now());
+  audioReceiverWorker = new Worker('audio_worker_PC2_receiver_transformer.js?t=' + Date.now());
+  videoReceiverWorker = new Worker('video_worker_PC2_receiver_transformer.js?t=' + Date.now());
+
+  audioReceiverWorker.onmessage = (e) => {
+    if (e.data.type === 'audioFrameReceived') {
+      const indicator = document.getElementById('audioIndicator');
+      if (indicator) {
+        indicator.style.backgroundColor = 'lightgreen';
+      }
+    }
+  };
 
   // Wait briefly for worker initialization
   await sleep(500);
@@ -85,6 +96,15 @@ async function connect() {
       remoteVideo2.srcObject = new MediaStream();
     }
     remoteVideo2.srcObject.addTrack(e.track);
+
+    // Apply RTCRtpScriptTransform to PC2 audio receiver
+    if (e.track.kind === 'audio' && window.RTCRtpScriptTransform) {
+      e.receiver.transform = new RTCRtpScriptTransform(audioReceiverWorker);
+    }
+    // Apply RTCRtpScriptTransform to PC2 video receiver
+    if (e.track.kind === 'video' && window.RTCRtpScriptTransform) {
+      e.receiver.transform = new RTCRtpScriptTransform(videoReceiverWorker);
+    }
   };
 
   // Create sendonly transceivers on PC2 local to negotiate sending capabilities
@@ -96,21 +116,21 @@ async function connect() {
   const pc2VideoSender = pc2VideoTransceiver.sender;
   const pc2AudioSender = pc2AudioTransceiver.sender;
 
-  // Call the new createEncodedSink API on PC2 senders to receive injected frames
-  if (typeof pc2VideoSender.createEncodedSink === 'function' &&
-    typeof pc2AudioSender.createEncodedSink === 'function') {
+  // Call the new createEncodedSource API on PC2 senders to receive injected frames
+  if (typeof pc2VideoSender.createEncodedSource === 'function' &&
+    typeof pc2AudioSender.createEncodedSource === 'function') {
     console.log('PC2: Registering encoded sinks on senders...');
     try {
-      await pc2VideoSender.createEncodedSink(videoWorker);
-      await pc2AudioSender.createEncodedSink(audioWorker);
-      console.log('PC2: createEncodedSink calls succeeded');
+      await pc2VideoSender.createEncodedSource(videoWorker);
+      await pc2AudioSender.createEncodedSource(audioWorker);
+      console.log('PC2: createEncodedSource calls succeeded');
     } catch (err) {
-      console.error('PC2: createEncodedSink registration failed:', err);
+      console.error('PC2: createEncodedSource registration failed:', err);
       return;
     }
   } else {
-    console.error('PC2: RTCRtpSender.createEncodedSink is not supported in this browser.');
-    alert('RTCRtpSender.createEncodedSink is not supported in this browser.');
+    console.error('PC2: RTCRtpSender.createEncodedSource is not supported in this browser.');
+    alert('RTCRtpSender.createEncodedSource is not supported in this browser.');
     return;
   }
 
@@ -155,7 +175,9 @@ function hangup() {
 
   if (videoWorker) videoWorker.terminate();
   if (audioWorker) audioWorker.terminate();
-  videoWorker = audioWorker = null;
+  if (audioReceiverWorker) audioReceiverWorker.terminate();
+  if (videoReceiverWorker) videoReceiverWorker.terminate();
+  videoWorker = audioWorker = audioReceiverWorker = videoReceiverWorker = null;
 
   if (localStream) {
     localStream.getTracks().forEach(track => track.stop());

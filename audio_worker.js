@@ -3,23 +3,23 @@
 
 let sinkWriter = null;
 
-// This event is triggered when PC2 sender calls createEncodedSink(audioWorker)
-self.onsenderencodedsink = (event) => {
-  console.log('Audio Worker: onsenderencodedsink triggered');
+// This event is triggered when PC2 sender calls createEncodedSource(audioWorker)
+self.onsenderencodedsource = (event) => {
+  console.log('Audio Worker: onsenderencodedsource triggered');
   try {
-    const encodedSink = event.encodedSink;
-    if (!encodedSink || !encodedSink.writable) {
-      console.error('Audio Worker: invalid encodedSink or writable');
+    const encodedSource = event.encodedSource;
+    if (!encodedSource || !encodedSource.writable) {
+      console.error('Audio Worker: invalid encodedSource or writable');
       return;
     }
-    sinkWriter = encodedSink.writable.getWriter();
+    sinkWriter = encodedSource.writable.getWriter();
     console.log('Audio Worker: Obtained writable stream writer for PC2 audio');
 
-    encodedSink.onkeyframerequest = (e) => {
+    encodedSource.onkeyframerequest = (e) => {
       console.log('Audio Worker: onkeyframerequest event intercepted');
     };
-    encodedSink.onbandwidthestimate = (e) => {
-      console.log('Audio Worker: onbandwidthestimate event intercepted, allocatedBitrate:', encodedSink.allocatedBitrate, 'availableOutgoingBitrate:', encodedSink.availableOutgoingBitrate);
+    encodedSource.onbitrateinfochange = (e) => {
+      console.log('Audio Worker: onbitrateinfochange event intercepted, allocatedBitrate:', encodedSource.allocatedBitrate, 'availableOutgoingBitrate:', encodedSource.availableOutgoingBitrate);
     };
     
   } catch (err) {
