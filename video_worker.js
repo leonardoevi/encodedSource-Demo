@@ -4,8 +4,8 @@
 let sinkWriter = null;
 
 // This event is triggered when PC2 sender calls createEncodedSource(videoWorker)
-self.onsenderencodedsource = (event) => {
-  console.log('Video Worker: onsenderencodedsource triggered');
+self.onrtcsenderencodedsource = (event) => {
+  console.log('Video Worker: onrtcsenderencodedsource triggered');
   try {
     const encodedSource = event.encodedSource;
     if (!encodedSource || !encodedSource.writable) {

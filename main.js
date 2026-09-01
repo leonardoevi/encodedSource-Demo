@@ -122,7 +122,7 @@ async function connect() {
     console.log('PC2: Registering encoded sinks on senders...');
     try {
       await pc2VideoSender.createEncodedSource(videoWorker);
-      //await pc2AudioSender.createEncodedSource(audioWorker);
+      await pc2AudioSender.createEncodedSource(audioWorker);
       console.log('PC2: createEncodedSource calls succeeded');
     } catch (err) {
       console.error('PC2: createEncodedSource registration failed:', err);
