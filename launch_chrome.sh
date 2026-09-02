@@ -11,7 +11,7 @@ cd "$DIR" || exit 1
   --use-fake-ui-for-media-stream \
   --disable-http-cache \
   --auto-open-devtools-for-tabs \
-  --enable-blink-features=RTCEncodedSource \
+  --enable-blink-features=RTCEncodedSource,RTCEncodedVideoFrameConstructor,RTCEncodedAudioFrameConstructor,RTCEncodedFrameTimestamps,RTCEncodedFrameSetMetadata,RTCEncodedFrameAudioLevel \
   http://localhost:8000/
 
   #--use-fake-device-for-media-stream \

@@ -2,8 +2,7 @@
 'use strict';
 
 const localVideo = document.getElementById('localVideo');
-const remoteVideo1 = document.getElementById('remoteVideo1');
-const remoteVideo2 = document.getElementById('remoteVideo2');
+const remoteVideo = document.getElementById('remoteVideo');
 
 const startButton = document.getElementById('startButton');
 const connectButton = document.getElementById('connectButton');
@@ -14,8 +13,7 @@ connectButton.onclick = connect;
 hangupButton.onclick = hangup;
 
 let localStream;
-let pc1Local, pc1Remote;
-let pc2Local, pc2Remote;
+let pcLocal, pcRemote;
 let videoWorker, audioWorker, audioReceiverWorker, videoReceiverWorker;
 
 // Helper sleep function
@@ -24,7 +22,6 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function start() {
   console.log('Requesting local media stream (video + audio)');
   try {
-    // Request both camera and microphone
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideo.srcObject = localStream;
 
@@ -57,122 +54,110 @@ async function connect() {
   };
 
   // Wait briefly for worker initialization
-  await sleep(500);
+  await sleep(200);
 
-  // --- Setup PC1 (Normal Connection with Transform) ---
-  console.log('Setting up standard PC pair...');
-  pc1Local = new RTCPeerConnection();
-  pc1Remote = new RTCPeerConnection();
+  // --- Setup PeerConnection (Injected Connection via EncodedSource) ---
+  console.log('Setting up PeerConnection pair...');
+  pcLocal = new RTCPeerConnection();
+  pcRemote = new RTCPeerConnection();
 
-  pc1Remote.ontrack = (e) => {
-    remoteVideo1.srcObject = e.streams[0];
-  };
-
-  // Add tracks to PC1 local from our localStream
-  const videoTrack = localStream.getVideoTracks()[0];
-  const audioTrack = localStream.getAudioTracks()[0];
-
-  const pc1VideoSender = pc1Local.addTrack(videoTrack, localStream);
-  const pc1AudioSender = pc1Local.addTrack(audioTrack, localStream);
-
-  // Apply RTCRtpScriptTransform to PC1 senders
-  if (window.RTCRtpScriptTransform) {
-    console.log('PC1: Applying RTCRtpScriptTransform to senders');
-    pc1VideoSender.transform = new RTCRtpScriptTransform(videoWorker);
-    pc1AudioSender.transform = new RTCRtpScriptTransform(audioWorker);
-  } else {
-    console.error('RTCRtpScriptTransform is not supported by this browser.');
-  }
-
-  // --- Setup PC2 (Injected Connection) ---
-  console.log('Setting up PC2 (Injected Pair)...');
-  pc2Local = new RTCPeerConnection();
-  pc2Remote = new RTCPeerConnection();
-
-  pc2Remote.ontrack = (e) => {
-    console.log('PC2: Received remote track');
-    // PC2 remote might receive tracks individually, bind them to a MediaStream
-    if (!remoteVideo2.srcObject) {
-      remoteVideo2.srcObject = new MediaStream();
+  pcRemote.ontrack = (e) => {
+    console.log('Receiver: Received remote track:', e.track.kind);
+    if (!remoteVideo.srcObject) {
+      remoteVideo.srcObject = new MediaStream();
     }
-    remoteVideo2.srcObject.addTrack(e.track);
+    remoteVideo.srcObject.addTrack(e.track);
 
-    // Apply RTCRtpScriptTransform to PC2 audio receiver
+    // Apply RTCRtpScriptTransform to audio receiver
     if (e.track.kind === 'audio' && window.RTCRtpScriptTransform) {
       e.receiver.transform = new RTCRtpScriptTransform(audioReceiverWorker);
     }
-    // Apply RTCRtpScriptTransform to PC2 video receiver
+    // Apply RTCRtpScriptTransform to video receiver
     if (e.track.kind === 'video' && window.RTCRtpScriptTransform) {
       e.receiver.transform = new RTCRtpScriptTransform(videoReceiverWorker);
     }
   };
 
-  // Create sendonly transceivers on PC2 local to negotiate sending capabilities
+  // Create sendonly transceivers on local PC to negotiate sending capabilities
   // without attaching actual hardware camera/mic tracks.
-  console.log('PC2: Adding transceivers for video and audio');
-  const pc2VideoTransceiver = pc2Local.addTransceiver('video', { direction: 'sendonly' });
-  const pc2AudioTransceiver = pc2Local.addTransceiver('audio', { direction: 'sendonly' });
+  console.log('Adding transceivers for video and audio (sendonly)...');
+  const videoTransceiver = pcLocal.addTransceiver('video', { direction: 'sendonly' });
+  const audioTransceiver = pcLocal.addTransceiver('audio', { direction: 'sendonly' });
 
-  const pc2VideoSender = pc2VideoTransceiver.sender;
-  const pc2AudioSender = pc2AudioTransceiver.sender;
+  const videoSender = videoTransceiver.sender;
+  const audioSender = audioTransceiver.sender;
 
-  // Call the new createEncodedSource API on PC2 senders to receive injected frames
-  if (typeof pc2VideoSender.createEncodedSource === 'function' &&
-    typeof pc2AudioSender.createEncodedSource === 'function') {
-    console.log('PC2: Registering encoded sinks on senders...');
+  // Register encoded sources on senders to inject WebCodecs frames
+  if (typeof videoSender.createEncodedSource === 'function' &&
+      typeof audioSender.createEncodedSource === 'function') {
+    console.log('Registering encoded sources on senders...');
     try {
-      await pc2VideoSender.createEncodedSource(videoWorker);
-      await pc2AudioSender.createEncodedSource(audioWorker);
-      console.log('PC2: createEncodedSource calls succeeded');
+      await videoSender.createEncodedSource(videoWorker);
+      await audioSender.createEncodedSource(audioWorker);
+      console.log('createEncodedSource calls succeeded.');
     } catch (err) {
-      console.error('PC2: createEncodedSource registration failed:', err);
+      console.error('createEncodedSource registration failed:', err);
+      alert('createEncodedSource failed: ' + err.message);
       return;
     }
   } else {
-    console.error('PC2: RTCRtpSender.createEncodedSource is not supported in this browser.');
+    console.error('RTCRtpSender.createEncodedSource is not supported in this browser.');
     alert('RTCRtpSender.createEncodedSource is not supported in this browser.');
     return;
   }
 
-  // Prefer AV1 codec for both connections
-  if (typeof RTCRtpReceiver !== 'undefined' && RTCRtpReceiver.getCapabilities) {
-    const capabilities = RTCRtpReceiver.getCapabilities('video');
-    if (capabilities && capabilities.codecs) {
-      const av1Codecs = capabilities.codecs.filter(
-        codec => codec.mimeType.toLowerCase() === 'video/av1'
-      );
-      const otherCodecs = capabilities.codecs.filter(
-        codec => codec.mimeType.toLowerCase() !== 'video/av1'
-      );
-      const preferredCodecs = [...av1Codecs, ...otherCodecs];
+  // Negotiate PeerConnection connection
+  await negotiate(pcLocal, pcRemote);
+  console.log('PeerConnection connected.');
 
-      const pc1VideoTransceiver = pc1Local.getTransceivers().find(t => t.sender === pc1VideoSender);
-      if (pc1VideoTransceiver && 'setCodecPreferences' in pc1VideoTransceiver) {
-        try {
-          pc1VideoTransceiver.setCodecPreferences(preferredCodecs);
-          console.log('PC1: Set AV1 as preferred codec.');
-        } catch (e) {
-          console.error('PC1: Failed to set codec preferences:', e);
-        }
-      }
+  // Extract negotiated codec parameters
+  const videoCodecs = videoSender.getParameters().codecs || [];
+  const audioCodecs = audioSender.getParameters().codecs || [];
 
-      if (pc2VideoTransceiver && 'setCodecPreferences' in pc2VideoTransceiver) {
-        try {
-          pc2VideoTransceiver.setCodecPreferences(preferredCodecs);
-          console.log('PC2: Set AV1 as preferred codec.');
-        } catch (e) {
-          console.error('PC2: Failed to set codec preferences:', e);
-        }
-      }
-    }
+  const videoCodecParam = videoCodecs[0] || { payloadType: 96, mimeType: 'video/AV1', clockRate: 90000 };
+  const audioCodecParam = audioCodecs[0] || { payloadType: 111, mimeType: 'audio/opus', clockRate: 48000 };
+
+  console.log('Negotiated video codec parameters:', videoCodecParam);
+  console.log('Negotiated audio codec parameters:', audioCodecParam);
+
+  // Setup MediaStreamTrackProcessor to feed raw frames to WebCodecs encoders in workers
+  const videoTrack = localStream.getVideoTracks()[0];
+  const audioTrack = localStream.getAudioTracks()[0];
+
+  if (typeof MediaStreamTrackProcessor !== 'function') {
+    console.error('MediaStreamTrackProcessor is not supported in this browser.');
+    alert('MediaStreamTrackProcessor is not supported.');
+    return;
   }
 
-  // Negotiate connections for both PeerConnection pairs
-  await negotiate(pc1Local, pc1Remote);
-  console.log('PC1 connected.');
+  const videoProcessor = new MediaStreamTrackProcessor({ track: videoTrack });
+  const audioProcessor = new MediaStreamTrackProcessor({ track: audioTrack });
 
-  await negotiate(pc2Local, pc2Remote);
-  console.log('PC2 connected.');
+  const videoSettings = videoTrack.getSettings ? (videoTrack.getSettings() || {}) : {};
+
+  videoWorker.postMessage({
+    type: 'startEncoding',
+    readable: videoProcessor.readable,
+    codecParams: {
+      payloadType: videoCodecParam.payloadType,
+      mimeType: videoCodecParam.mimeType,
+      clockRate: videoCodecParam.clockRate || 90000,
+      width: videoSettings.width || 640,
+      height: videoSettings.height || 480,
+    }
+  }, [videoProcessor.readable]);
+
+  audioWorker.postMessage({
+    type: 'startEncoding',
+    readable: audioProcessor.readable,
+    codecParams: {
+      payloadType: audioCodecParam.payloadType,
+      mimeType: audioCodecParam.mimeType,
+      clockRate: audioCodecParam.clockRate || 48000,
+    }
+  }, [audioProcessor.readable]);
+
+  console.log('MediaStreamTrackProcessor streams forwarded to WebCodecs encoder workers.');
 }
 
 async function negotiate(pcLocal, pcRemote) {
@@ -199,12 +184,9 @@ async function negotiate(pcLocal, pcRemote) {
 function hangup() {
   console.log('Ending call and cleanup');
   
-  if (pc1Local) pc1Local.close();
-  if (pc1Remote) pc1Remote.close();
-  if (pc2Local) pc2Local.close();
-  if (pc2Remote) pc2Remote.close();
-  
-  pc1Local = pc1Remote = pc2Local = pc2Remote = null;
+  if (pcLocal) pcLocal.close();
+  if (pcRemote) pcRemote.close();
+  pcLocal = pcRemote = null;
 
   if (videoWorker) videoWorker.terminate();
   if (audioWorker) audioWorker.terminate();
@@ -218,10 +200,15 @@ function hangup() {
   }
 
   localVideo.srcObject = null;
-  remoteVideo1.srcObject = null;
-  remoteVideo2.srcObject = null;
+  remoteVideo.srcObject = null;
+
+  const indicator = document.getElementById('audioIndicator');
+  if (indicator) {
+    indicator.style.backgroundColor = 'gray';
+  }
 
   startButton.disabled = false;
   connectButton.disabled = true;
   hangupButton.disabled = true;
 }
+
