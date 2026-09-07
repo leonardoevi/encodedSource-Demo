@@ -15,41 +15,38 @@ let currentBitrate = 64000;
 // This event is triggered when RTCRtpSender.createEncodedSource(audioWorker) is called
 self.onrtcsenderencodedsource = (event) => {
   console.log('Audio Worker: onrtcsenderencodedsource triggered');
-  try {
-    const encodedSource = event.encodedSource;
-    if (!encodedSource || !encodedSource.writable) {
-      console.error('Audio Worker: Invalid encodedSource or writable stream');
-      return;
-    }
-
-    sinkWriter = encodedSource.writable.getWriter();
-    resolveSinkWriter(sinkWriter);
-    console.log('Audio Worker: Obtained writable stream writer for encoded audio');
-
-    encodedSource.onbitrateinfochange = (e) => {
-      console.log('Audio Worker: onbitrateinfochange event intercepted:',
-        'allocatedBitrate:', encodedSource.allocatedBitrate,
-        'availableOutgoingBitrate:', encodedSource.availableOutgoingBitrate);
-
-      if (encodedSource.allocatedBitrate && audioEncoder && audioEncoder.state === 'configured') {
-        currentBitrate = encodedSource.allocatedBitrate;
-        try {
-          audioEncoder.configure({
-            codec: 'opus',
-            sampleRate: sampleRate,
-            numberOfChannels: numberOfChannels,
-            bitrate: currentBitrate,
-          });
-          console.log('Audio Worker: Reconfigured AudioEncoder with new bitrate:', currentBitrate);
-        } catch (err) {
-          console.error('Audio Worker: Failed to reconfigure audio encoder bitrate:', err);
-        }
-      }
-    };
-
-  } catch (err) {
-    console.error('Audio Worker: Error setting up encoded source writer:', err);
+  const encodedSource = event.encodedSource;
+  if (!encodedSource) {
+    throw new Error('Audio Worker: event.encodedSource is missing');
   }
+  if (!encodedSource.writable) {
+    throw new Error('Audio Worker: encodedSource.writable stream is missing');
+  }
+
+  sinkWriter = encodedSource.writable.getWriter();
+  resolveSinkWriter(sinkWriter);
+  console.log('Audio Worker: Obtained writable stream writer for encoded audio');
+
+  encodedSource.onbitrateinfochange = (e) => {
+    console.log('Audio Worker: onbitrateinfochange event intercepted:',
+      'allocatedBitrate:', encodedSource.allocatedBitrate,
+      'availableOutgoingBitrate:', encodedSource.availableOutgoingBitrate);
+
+    if (encodedSource.allocatedBitrate && audioEncoder && audioEncoder.state === 'configured') {
+      currentBitrate = encodedSource.allocatedBitrate;
+      try {
+        audioEncoder.configure({
+          codec: 'opus',
+          sampleRate: sampleRate,
+          numberOfChannels: numberOfChannels,
+          bitrate: currentBitrate,
+        });
+        console.log('Audio Worker: Reconfigured AudioEncoder with new bitrate:', currentBitrate);
+      } catch (err) {
+        console.error('Audio Worker: Failed to reconfigure audio encoder bitrate:', err);
+      }
+    }
+  };
 };
 
 // Receive MediaStreamTrackProcessor readable stream and codec parameters from main thread
@@ -60,6 +57,22 @@ self.onmessage = async (e) => {
   }
 
   console.log('Audio Worker: Received startEncoding request with params:', codecParams);
+
+  if (!codecParams) {
+    throw new Error('Audio Worker: codecParams is missing from startEncoding message');
+  }
+  if (codecParams.payloadType === undefined) {
+    throw new Error('Audio Worker: codecParams.payloadType is missing');
+  }
+  if (!codecParams.mimeType) {
+    throw new Error('Audio Worker: codecParams.mimeType is missing');
+  }
+  if (!codecParams.clockRate) {
+    throw new Error('Audio Worker: codecParams.clockRate is missing');
+  }
+  if (!readable) {
+    throw new Error('Audio Worker: readable stream is missing from startEncoding message');
+  }
 
   // Wait for encodedSource writable sink to be ready
   await sinkWriterPromise;
@@ -72,8 +85,7 @@ self.onmessage = async (e) => {
   audioEncoder = new AudioEncoder({
     output: (chunk, metadata) => {
       if (!sinkWriter) {
-        console.warn('Audio Worker: sinkWriter is not ready, dropping frame');
-        return;
+        throw new Error('Audio Worker: sinkWriter is not ready, cannot write frame');
       }
 
       try {
@@ -82,26 +94,15 @@ self.onmessage = async (e) => {
 
         // WebCodecs chunk.timestamp is in microseconds.
         // WebRTC audio RTP timestamp at clock rate (typically 48kHz for Opus) = (timestamp * clockRate / 1000000)
-        const clockRate = (codecParams && codecParams.clockRate) || 48000;
+        const clockRate = codecParams.clockRate;
         const rtpTimestamp = Math.floor((chunk.timestamp * clockRate) / 1000000) >>> 0;
 
-        // Construct RTCEncodedAudioFrame using the web-exposed constructor:
-        // dictionary RTCEncodedAudioFrameInit {
-        //     RTCAudioContentType contentType = "speech";
-        //     required octet payloadType;
-        //     required unsigned long rtpTimestampWithoutOffset;
-        //     required ArrayBuffer data;
-        //     [RuntimeEnabled=RTCEncodedFrameTimestamps] DOMHighResTimeStamp captureTime;
-        //     sequence<unsigned long> contributingSources = [];
-        //     DOMString mimeType;
-        //     [RuntimeEnabled=RTCEncodedFrameAudioLevel] double audioLevel;
-        // };
         const frameInit = {
           contentType: 'speech',
-          payloadType: (codecParams && codecParams.payloadType) || 111,
+          payloadType: codecParams.payloadType,
           rtpTimestampWithoutOffset: rtpTimestamp,
           data: buffer,
-          mimeType: (codecParams && codecParams.mimeType) || 'audio/opus',
+          mimeType: codecParams.mimeType,
           captureTime: performance.now(),
           contributingSources: [],
         };
@@ -116,6 +117,7 @@ self.onmessage = async (e) => {
         });
       } catch (err) {
         console.error('Audio Worker: Error constructing/injecting RTCEncodedAudioFrame:', err);
+        throw err;
       }
     },
     error: (err) => {
@@ -133,8 +135,15 @@ self.onmessage = async (e) => {
       }
 
       if (!encoderConfigured) {
-        sampleRate = audioData.sampleRate || 48000;
-        numberOfChannels = audioData.numberOfChannels || 2;
+        if (!audioData.sampleRate) {
+          throw new Error('Audio Worker: audioData.sampleRate is missing');
+        }
+        sampleRate = audioData.sampleRate;
+
+        if (!audioData.numberOfChannels) {
+          throw new Error('Audio Worker: audioData.numberOfChannels is missing');
+        }
+        numberOfChannels = audioData.numberOfChannels;
 
         audioEncoder.configure({
           codec: 'opus',
@@ -151,5 +160,6 @@ self.onmessage = async (e) => {
     }
   } catch (err) {
     console.error('Audio Worker: Error reading audio frames from stream:', err);
+    throw err;
   }
 };

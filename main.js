@@ -88,22 +88,22 @@ async function connect() {
   const audioSender = audioTransceiver.sender;
 
   // Register encoded sources on senders to inject WebCodecs frames
-  if (typeof videoSender.createEncodedSource === 'function' &&
-      typeof audioSender.createEncodedSource === 'function') {
-    console.log('Registering encoded sources on senders...');
-    try {
-      await videoSender.createEncodedSource(videoWorker);
-      await audioSender.createEncodedSource(audioWorker);
-      console.log('createEncodedSource calls succeeded.');
-    } catch (err) {
-      console.error('createEncodedSource registration failed:', err);
-      alert('createEncodedSource failed: ' + err.message);
-      return;
-    }
-  } else {
-    console.error('RTCRtpSender.createEncodedSource is not supported in this browser.');
-    alert('RTCRtpSender.createEncodedSource is not supported in this browser.');
-    return;
+  if (typeof videoSender.createEncodedSource !== 'function') {
+    throw new Error('RTCRtpSender.createEncodedSource is not supported on videoSender.');
+  }
+  if (typeof audioSender.createEncodedSource !== 'function') {
+    throw new Error('RTCRtpSender.createEncodedSource is not supported on audioSender.');
+  }
+
+  console.log('Registering encoded sources on senders...');
+  try {
+    await videoSender.createEncodedSource(videoWorker);
+    await audioSender.createEncodedSource(audioWorker);
+    console.log('createEncodedSource calls succeeded.');
+  } catch (err) {
+    console.error('createEncodedSource registration failed:', err);
+    alert('createEncodedSource failed: ' + err.message);
+    throw new Error('createEncodedSource registration failed: ' + err.message);
   }
 
   // Negotiate PeerConnection connection
@@ -111,29 +111,94 @@ async function connect() {
   console.log('PeerConnection connected.');
 
   // Extract negotiated codec parameters
-  const videoCodecs = videoSender.getParameters().codecs || [];
-  const audioCodecs = audioSender.getParameters().codecs || [];
+  const videoParameters = videoSender.getParameters();
+  if (!videoParameters) {
+    throw new Error('videoSender.getParameters() returned null or undefined');
+  }
+  if (!videoParameters.codecs) {
+    throw new Error('videoSender parameters missing codecs array');
+  }
+  if (videoParameters.codecs.length === 0) {
+    throw new Error('No negotiated video codecs found on video sender');
+  }
+  const videoCodecParam = videoParameters.codecs[0];
+  if (videoCodecParam.payloadType === undefined) {
+    throw new Error('Negotiated video codec is missing payloadType');
+  }
+  if (!videoCodecParam.mimeType) {
+    throw new Error('Negotiated video codec is missing mimeType');
+  }
+  if (!videoCodecParam.clockRate) {
+    throw new Error('Negotiated video codec is missing clockRate');
+  }
 
-  const videoCodecParam = videoCodecs[0] || { payloadType: 96, mimeType: 'video/AV1', clockRate: 90000 };
-  const audioCodecParam = audioCodecs[0] || { payloadType: 111, mimeType: 'audio/opus', clockRate: 48000 };
+  const audioParameters = audioSender.getParameters();
+  if (!audioParameters) {
+    throw new Error('audioSender.getParameters() returned null or undefined');
+  }
+  if (!audioParameters.codecs) {
+    throw new Error('audioSender parameters missing codecs array');
+  }
+  if (audioParameters.codecs.length === 0) {
+    throw new Error('No negotiated audio codecs found on audio sender');
+  }
+  const audioCodecParam = audioParameters.codecs[0];
+  if (audioCodecParam.payloadType === undefined) {
+    throw new Error('Negotiated audio codec is missing payloadType');
+  }
+  if (!audioCodecParam.mimeType) {
+    throw new Error('Negotiated audio codec is missing mimeType');
+  }
+  if (!audioCodecParam.clockRate) {
+    throw new Error('Negotiated audio codec is missing clockRate');
+  }
 
   console.log('Negotiated video codec parameters:', videoCodecParam);
   console.log('Negotiated audio codec parameters:', audioCodecParam);
 
+  if (!localStream) {
+    throw new Error('localStream is not initialized. Please click "Start Media" first.');
+  }
+
   // Setup MediaStreamTrackProcessor to feed raw frames to WebCodecs encoders in workers
-  const videoTrack = localStream.getVideoTracks()[0];
-  const audioTrack = localStream.getAudioTracks()[0];
+  const videoTracks = localStream.getVideoTracks();
+  if (!videoTracks) {
+    throw new Error('localStream.getVideoTracks() returned null or undefined');
+  }
+  if (videoTracks.length === 0) {
+    throw new Error('No video track found in localStream');
+  }
+  const videoTrack = videoTracks[0];
+
+  const audioTracks = localStream.getAudioTracks();
+  if (!audioTracks) {
+    throw new Error('localStream.getAudioTracks() returned null or undefined');
+  }
+  if (audioTracks.length === 0) {
+    throw new Error('No audio track found in localStream');
+  }
+  const audioTrack = audioTracks[0];
 
   if (typeof MediaStreamTrackProcessor !== 'function') {
-    console.error('MediaStreamTrackProcessor is not supported in this browser.');
-    alert('MediaStreamTrackProcessor is not supported.');
-    return;
+    throw new Error('MediaStreamTrackProcessor is not supported in this browser.');
   }
 
   const videoProcessor = new MediaStreamTrackProcessor({ track: videoTrack });
   const audioProcessor = new MediaStreamTrackProcessor({ track: audioTrack });
 
-  const videoSettings = videoTrack.getSettings ? (videoTrack.getSettings() || {}) : {};
+  if (typeof videoTrack.getSettings !== 'function') {
+    throw new Error('videoTrack.getSettings is not a function');
+  }
+  const videoSettings = videoTrack.getSettings();
+  if (!videoSettings) {
+    throw new Error('videoTrack.getSettings() returned null or undefined');
+  }
+  if (!videoSettings.width) {
+    throw new Error('videoTrack settings missing width');
+  }
+  if (!videoSettings.height) {
+    throw new Error('videoTrack settings missing height');
+  }
 
   videoWorker.postMessage({
     type: 'startEncoding',
@@ -141,9 +206,9 @@ async function connect() {
     codecParams: {
       payloadType: videoCodecParam.payloadType,
       mimeType: videoCodecParam.mimeType,
-      clockRate: videoCodecParam.clockRate || 90000,
-      width: videoSettings.width || 640,
-      height: videoSettings.height || 480,
+      clockRate: videoCodecParam.clockRate,
+      width: videoSettings.width,
+      height: videoSettings.height,
     }
   }, [videoProcessor.readable]);
 
@@ -153,7 +218,7 @@ async function connect() {
     codecParams: {
       payloadType: audioCodecParam.payloadType,
       mimeType: audioCodecParam.mimeType,
-      clockRate: audioCodecParam.clockRate || 48000,
+      clockRate: audioCodecParam.clockRate,
     }
   }, [audioProcessor.readable]);
 
