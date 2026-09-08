@@ -14,21 +14,25 @@
         <button id="requestKeyframeButton" disabled>Request Keyframe</button>
     </div>
 
-    <div style="margin-top: 20px;">
-        <h3>Local Preview (Muted)</h3>
-        <video id="localVideo" autoplay playsinline muted style="width: 320px; height: 240px; background: black;"></video>
-    </div>
-    <div>
-        <h3>Remote Injected</h3>
-        <video id="remoteVideo" autoplay playsinline style="width: 320px; height: 240px; background: black;"></video>
-        <div style="margin-top: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 18px; line-height: 1.6;">
-            <div id="audioBitrate" style="margin-bottom: 10px;">
-                <span style="font-weight: bold;">Audio:</span><br>allocatedBitrate: <span style="font-weight: 600; color: #0969da;">-</span><br>availableOutgoingBitrate: <span style="font-weight: 600; color: #0969da;">-</span>
+    <div style="display: flex; gap: 20px; margin-top: 20px; align-items: flex-start;">
+        <div>
+            <h3>Local Preview (Muted)</h3>
+            <video id="localVideo" autoplay playsinline muted style="width: 320px; height: 240px; background: black;"></video>
+        </div>
+        <div>
+            <h3>Remote Injected</h3>
+            <div style="display: flex; gap: 20px; align-items: flex-start;">
+                <video id="remoteVideo" autoplay playsinline style="width: 320px; height: 240px; background: black;"></video>
+                <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 18px; line-height: 1.6;">
+                    <div id="audioBitrate" style="margin-bottom: 10px;">
+                        <span style="font-weight: bold;">Audio:</span><br>allocatedBitrate: <span style="font-weight: 600; color: #0969da;">-</span><br>availableOutgoingBitrate: <span style="font-weight: 600; color: #0969da;">-</span>
+                    </div>
+                    <div id="videoBitrate">
+                        <span style="font-weight: bold;">Video:</span><br>allocatedBitrate: <span style="font-weight: 600; color: #0969da;">-</span><br>availableOutgoingBitrate: <span style="font-weight: 600; color: #0969da;">-</span>
+                    </div>
+                    <div id="keyframeNotice" style="margin-top: 10px; font-weight: bold; color: #cf222e; min-height: 1.3em; opacity: 0;"></div>
+                </div>
             </div>
-            <div id="videoBitrate">
-                <span style="font-weight: bold;">Video:</span><br>allocatedBitrate: <span style="font-weight: 600; color: #0969da;">-</span><br>availableOutgoingBitrate: <span style="font-weight: 600; color: #0969da;">-</span>
-            </div>
-            <div id="keyframeNotice" style="margin-top: 10px; font-weight: bold; color: #cf222e; min-height: 1.3em; opacity: 0;"></div>
         </div>
     </div>
 
