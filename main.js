@@ -3,14 +3,19 @@
 
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
+const audioBitrate = document.getElementById('audioBitrate');
+const videoBitrate = document.getElementById('videoBitrate');
+const keyframeNotice = document.getElementById('keyframeNotice');
 
 const startButton = document.getElementById('startButton');
 const connectButton = document.getElementById('connectButton');
 const hangupButton = document.getElementById('hangupButton');
+const requestKeyframeButton = document.getElementById('requestKeyframeButton');
 
 startButton.onclick = start;
 connectButton.onclick = connect;
 hangupButton.onclick = hangup;
+requestKeyframeButton.onclick = requestKeyframe;
 
 let localStream;
 let pcLocal, pcRemote;
@@ -18,6 +23,35 @@ let videoWorker, audioWorker, audioReceiverWorker, videoReceiverWorker;
 
 // Helper sleep function
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+let keyframeTimeout = null;
+function showKeyframeNotice() {
+  if (!keyframeNotice) {
+    return;
+  }
+  const timeStr = new Date().toLocaleTimeString();
+  keyframeNotice.textContent = `Keyframe requested at ${timeStr}`;
+  keyframeNotice.style.transition = 'none';
+  keyframeNotice.style.opacity = '1';
+
+  if (keyframeTimeout) {
+    clearTimeout(keyframeTimeout);
+  }
+  keyframeTimeout = setTimeout(() => {
+    keyframeNotice.style.transition = 'opacity 2s ease-out';
+    keyframeNotice.style.opacity = '0';
+  }, 1000);
+}
+
+function formatBitrate(val) {
+  if (val === undefined) {
+    return '-';
+  }
+  if (val === null) {
+    return '-';
+  }
+  return `${Number(val).toLocaleString()} bps`;
+}
 
 async function start() {
   console.log('Requesting local media stream (video + audio)');
@@ -44,11 +78,37 @@ async function connect() {
   audioReceiverWorker = new Worker('audio_worker_PC2_receiver_transformer.js?t=' + Date.now());
   videoReceiverWorker = new Worker('video_worker_PC2_receiver_transformer.js?t=' + Date.now());
 
-  audioReceiverWorker.onmessage = (e) => {
-    if (e.data.type === 'audioFrameReceived') {
-      const indicator = document.getElementById('audioIndicator');
-      if (indicator) {
-        indicator.style.backgroundColor = 'lightgreen';
+  videoWorker.onmessage = (e) => {
+    if (e.data.type === 'bitrateInfo') {
+      const allocated = formatBitrate(e.data.allocatedBitrate);
+      const availableOutgoing = formatBitrate(e.data.availableOutgoingBitrate);
+      if (videoBitrate) {
+        videoBitrate.innerHTML = `<span style="font-weight: bold;">Video:</span><br>allocatedBitrate: <span style="font-weight: 600; color: #0969da;">${allocated}</span><br>availableOutgoingBitrate: <span style="font-weight: 600; color: #0969da;">${availableOutgoing}</span>`;
+      }
+    } else if (e.data.type === 'keyframeRequested') {
+      showKeyframeNotice();
+    }
+  };
+
+  audioWorker.onmessage = (e) => {
+    if (e.data.type === 'bitrateInfo') {
+      const allocated = formatBitrate(e.data.allocatedBitrate);
+      const availableOutgoing = formatBitrate(e.data.availableOutgoingBitrate);
+      if (audioBitrate) {
+        audioBitrate.innerHTML = `<span style="font-weight: bold;">Audio:</span><br>allocatedBitrate: <span style="font-weight: 600; color: #0969da;">${allocated}</span><br>availableOutgoingBitrate: <span style="font-weight: 600; color: #0969da;">${availableOutgoing}</span>`;
+      }
+    }
+  };
+
+  videoReceiverWorker.onmessage = (e) => {
+    if (!e.data) {
+      return;
+    }
+    if (e.data.type === 'keyframeRequestSent') {
+      if (e.data.success) {
+        console.log('Main: Receiver keyframe request sent successfully.');
+      } else {
+        console.error('Main: Receiver keyframe request failed:', e.data.error);
       }
     }
   };
@@ -109,6 +169,7 @@ async function connect() {
   // Negotiate PeerConnection connection
   await negotiate(pcLocal, pcRemote);
   console.log('PeerConnection connected.');
+  requestKeyframeButton.disabled = false;
 
   // Extract negotiated codec parameters
   const videoParameters = videoSender.getParameters();
@@ -267,13 +328,35 @@ function hangup() {
   localVideo.srcObject = null;
   remoteVideo.srcObject = null;
 
-  const indicator = document.getElementById('audioIndicator');
-  if (indicator) {
-    indicator.style.backgroundColor = 'gray';
+  if (audioBitrate) {
+    audioBitrate.innerHTML = '<span style="font-weight: bold;">Audio:</span><br>allocatedBitrate: <span style="font-weight: 600; color: #0969da;">-</span><br>availableOutgoingBitrate: <span style="font-weight: 600; color: #0969da;">-</span>';
+  }
+  if (videoBitrate) {
+    videoBitrate.innerHTML = '<span style="font-weight: bold;">Video:</span><br>allocatedBitrate: <span style="font-weight: 600; color: #0969da;">-</span><br>availableOutgoingBitrate: <span style="font-weight: 600; color: #0969da;">-</span>';
+  }
+
+  if (keyframeTimeout) {
+    clearTimeout(keyframeTimeout);
+    keyframeTimeout = null;
+  }
+  if (keyframeNotice) {
+    keyframeNotice.style.transition = 'none';
+    keyframeNotice.style.opacity = '0';
+    keyframeNotice.textContent = '';
   }
 
   startButton.disabled = false;
   connectButton.disabled = true;
   hangupButton.disabled = true;
+  requestKeyframeButton.disabled = true;
 }
+
+function requestKeyframe() {
+  if (!videoReceiverWorker) {
+    throw new Error('requestKeyframe: videoReceiverWorker is not initialized');
+  }
+  console.log('Main: Requesting keyframe from receiver worker...');
+  videoReceiverWorker.postMessage({ type: 'requestKeyframe' });
+}
+
 

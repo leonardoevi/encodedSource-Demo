@@ -32,6 +32,12 @@ self.onrtcsenderencodedsource = (event) => {
       'allocatedBitrate:', encodedSource.allocatedBitrate,
       'availableOutgoingBitrate:', encodedSource.availableOutgoingBitrate);
 
+    self.postMessage({
+      type: 'bitrateInfo',
+      allocatedBitrate: encodedSource.allocatedBitrate,
+      availableOutgoingBitrate: encodedSource.availableOutgoingBitrate,
+    });
+
     if (encodedSource.allocatedBitrate && audioEncoder && audioEncoder.state === 'configured') {
       currentBitrate = encodedSource.allocatedBitrate;
       try {

@@ -33,6 +33,9 @@ self.onrtcsenderencodedsource = (event) => {
   encodedSource.onkeyframerequest = (e) => {
     console.log('Video Worker: onkeyframerequest event intercepted -> requesting key frame');
     keyFrameRequested = true;
+    self.postMessage({
+      type: 'keyframeRequested',
+    });
   };
 
   // Handle bandwidth / bitrate change notifications
@@ -40,6 +43,12 @@ self.onrtcsenderencodedsource = (event) => {
     console.log('Video Worker: onbitrateinfochange event intercepted:',
       'allocatedBitrate:', encodedSource.allocatedBitrate,
       'availableOutgoingBitrate:', encodedSource.availableOutgoingBitrate);
+
+    self.postMessage({
+      type: 'bitrateInfo',
+      allocatedBitrate: encodedSource.allocatedBitrate,
+      availableOutgoingBitrate: encodedSource.availableOutgoingBitrate,
+    });
 
     if (encodedSource.allocatedBitrate && videoEncoder && videoEncoder.state === 'configured') {
       currentBitrate = encodedSource.allocatedBitrate;

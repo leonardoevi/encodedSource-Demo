@@ -11,6 +11,7 @@
         <button id="startButton">Start Media</button>
         <button id="connectButton" disabled>Connect (Inject)</button>
         <button id="hangupButton" disabled>Hangup</button>
+        <button id="requestKeyframeButton" disabled>Request Keyframe</button>
     </div>
 
     <div style="margin-top: 20px;">
@@ -18,8 +19,17 @@
         <video id="localVideo" autoplay playsinline muted style="width: 320px; height: 240px; background: black;"></video>
     </div>
     <div>
-        <h3>Remote Injected <span id="audioIndicator" style="display:inline-block; width: 12px; height: 12px; border-radius: 50%; background-color: gray; margin-left: 8px; transition: background-color 0.1s;"></span></h3>
+        <h3>Remote Injected</h3>
         <video id="remoteVideo" autoplay playsinline style="width: 320px; height: 240px; background: black;"></video>
+        <div style="margin-top: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 18px; line-height: 1.6;">
+            <div id="audioBitrate" style="margin-bottom: 10px;">
+                <span style="font-weight: bold;">Audio:</span><br>allocatedBitrate: <span style="font-weight: 600; color: #0969da;">-</span><br>availableOutgoingBitrate: <span style="font-weight: 600; color: #0969da;">-</span>
+            </div>
+            <div id="videoBitrate">
+                <span style="font-weight: bold;">Video:</span><br>allocatedBitrate: <span style="font-weight: 600; color: #0969da;">-</span><br>availableOutgoingBitrate: <span style="font-weight: 600; color: #0969da;">-</span>
+            </div>
+            <div id="keyframeNotice" style="margin-top: 10px; font-weight: bold; color: #cf222e; min-height: 1.3em; opacity: 0;"></div>
+        </div>
     </div>
 
     <script src="main.js"></script>
