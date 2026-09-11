@@ -1,0 +1,204 @@
+Google Internship diary
+
+Week 1 - 13th April
+I requested and gained access to resources (SSH access, VM access, etc…). Started reading the chromium docs (https://www.chromium.org/chromium-projects/), got and built the code.
+Performed standard corporate training.
+
+Week 2 - 20th April
+I watched most of the videos from the Chromium university (https://www.youtube.com/watch?v=u11lbUWEeYI&list=PL9ioqAuyl6ULp1f36EEjIN1vSBEfsb-0a) that introduced me to the main concepts about chromium architecture and code organizations, best practices and security concerns. These courses also explain at a high level the main components that make up chromium and why they are important to create the so-called “Web platform”. The “Web platform” is essentially the set of functionalities (Web APIs) that are supported by the browsers and allow web developers to deliver web pages that run code on the guest machine, turning them into “Web Apps”. All of this is possible using JavaScript, CSS and WebAssembly.
+
+Week 3 - 27th April
+I mainly attended the GTI (Google technical training sessions) and watched an internal podcast with interviews and technical sessions about Chromium. Short week, Thursday and Friday off.
+
+Week 4 - 4th May
+I was introduced to the technologies that I will need to be familiar with to work on the project.
+
+WebRTC
+https://webrtcforthecurious.com/
+This is a protocol that allows real time, secure communication over the internet. The WebRTC protocol is maintained in the IETF in the rtcweb working group.
+
+A set of JavaScript APIs allow web applications to easily use the protocol and allow for real time communication between browsers. A common application is live video conferencing. The WebRTC API is documented in the W3C as webrtc.
+
+In short, this protocol requires two peers (entities that want to establish a connection) to agree on some details about the communication channel they want to establish. For example: types of media to be exchanged (audio, video, and application data), network transports, used codecs and their settings, bandwidth information, other metadata.
+This exchange has to be done on a “signaling channel” that is not specified by the protocol and is left to the application.
+
+The protocol then takes care of:
+
+1 - Establishing the peer-to-peer connection, usually requiring NAT traversals, contacting STUN or TURN servers. The discussion is very interesting and goes into the details of networking. A very nice explanation on why all of this is needed and how it is implemented at a high level can be found at the following link. To put it simply, most devices do not have a public IP address and are hidden behind Network Address Translation (NAT) devices and firewalls. This makes it harder to establish a direct connection. The so-called ICE (Interactive Connectivity Establishment) is used to address this issue and dynamically adapt to changes (like connecting to a different network).
+
+2 - Encrypting the communication over UDP. This is not a trivial task due to the nature of UDP. This protocol is preferred over TCP because it reduces latency, which is a key feature for real time application. However it does not ensure in-order delivery of packets, which is necessary if we need to reassemble them to decrypt the message. This is done using a variation of the Transport Layer Security (TLS) protocol, called Datagram TLS (DTLS). This protocol allows to perform a key exchange over UDP.
+
+3 - Delivering media stream data. This is done using the Secure Real-time Transport Protocol (SRTP) and Secure Real-time Control Transport Protocol (SRTCP). The first one takes care of delivering the real-time media packets and the second one implements a feedback loop to adapt the transmission to the weather of the network.
+
+All this is explained very carefully in the last chapter of the “High Performance Browser Networking” book:
+https://hpbn.co/webrtc/#standards-and-development-of-webrtc
+
+
+Audio and Video Encoding
+	I do not know much about this topic and I may or may not dig deeper as this is a whole area of research of its own. The important aspect to keep in mind is that, especially for a Video stream, it does not make sense to send raw frames over the network. Individual frames are compressed by dedicated encoding algorithms into so-called key frames. Following frames are compressed even more, under the assumption that they do not differ by the previous frame by much (essentially we assume a sort of “continuity” of the stream). This allows the codec to produce delta-frames that are even more compressed.
+While key-frames can be decoded by themselves, delta-frames need the previous frame to be decoded. This fact plays an important role in the feedback mechanism that controls the transmission of real time audio and video.
+
+
+
+I started learning about the project details.
+I need to implement a new API in Chromium that allows a WebApp (typically written in JavaScript) to send already-encoded media using WebRTC. This was not previously possible, the App could only provide raw media and the API would take care of encoding.
+
+This use case can be useful to optimize video conferences that involve a large number of participants.
+The source could send the encoded media to a subset of users that can then relay that encoded media to more users and so on. This avoids flooding the network with the same data coming from the single source of the stream (which could be the call host for example).
+Ideally this implementation could prove to be beneficial and allow the API design to become part of the WebRTC standard.
+
+The proposal has already been discussed in the following presentation (slide 70 to 80): https://docs.google.com/presentation/d/1sd5zEnvlXO5Sk3ENQorUUIQiRz65sv0KZKxDMMYHM3I/edit?slide=id.g3a13e66714b_0_108#slide=id.g3a13e66714b_0_108
+
+Week 5 - 11th May
+I successfully implemented a very simple working version of the EncodedSource API.
+I used the existing underlying tools that enable the peer-to-peer communication to expose the entrypoint to an encoded stream of Video frames.
+
+A simple Javascript web page was used to demonstrate the effectiveness of the new implemented feature.
+A “normal” peerConnection (PC1) is established between two peers. Input and output video is shown. An existing feature is exploited to extract the encoded stream of frames before they are sent to the other side of PC1. Extracted frames are cloned, ready to be injected into another peerConnection and stored in a queue to introduce some artificial delay (the only reason for this delay is to show that the application has control over the stream, it's not necessary on practice).
+A second peerConnection (PC2) is set up and the receiver is connected to a video element (i.e. a window) to show the output. Encoded video frames are injected at the sender side of PC2 using the new API, a correctly reconstructed (and delayed) video is shown in the video element.
+
+**Note that PC1 here is only used as a convenient generator of encoded frames. This setup is not the typical use case and is only used to empirically test the effectiveness of the implementation.**
+
+/*
+It could be interesting to put a screenshot of the setup or even the .patch file that enables the feature in chromium and the JavaScript and HTML of the test webpage. It’s important to say that compiling Chromium requires a lot of storage and multiple hours on standard hardware.
+*/
+
+This implementation is a simple proof of concept and still lacks a lot of fundamental features.
+It definitely requires the appropriate “book keeping” to track the usage of the API, to avoid interference with other API that the class exposes and to make sure that access to the API is safe.
+It lacks proper testing.
+It lacks all the other important information that the application will need in order to properly generate and send the encoded stream of video frames.
+One example is the possibility for the lower layers or the receiver to request a KeyFrame and notify the Application (which is responsible for providing the encoded stream) to generate and send a new KeyFrame.
+
+Week 6 - 18th May
+Implemented the necessary plumbing to intercept requests for keyframes coming from the receiver side of the connection. Using an established observer pattern the sender class is notified of such a request, typically generated by a so-called “Picture Loss Indication” packet or a “Full Intra Request” packet in the RTCP protocol.
+Both events have a similar meaning and are fired from the receiver depending on how badly conditioned its decoder state is. In any case the important aspect is that they request a KeyFrame from the sender so that the stream can be correctly decoded.
+ 
+The web application, which is acting as the encoder in this scenario is then notified by firing an asynchronous event and can proceed to inject a new keyframe in the connection.
+
+Week 7 - 25th May
+This was a week that was mainly dedicated to debugging. The feature I was trying to implement is a tight feedback loop between the javascript application and the RTCP bandwidth estimation. This kind of feedback is typically present inside the WebRTC and allows the encoder to adjust the quality of the output stream depending on the estimated bandwidth that is available on the given channel. The RTCP protocol analyzes the network weather in real time using the Google Congestion Control algorithm for Web Real-Time Communication, and forwards the information to the encoder to adjust the sending rate.
+
+Given the complexity of the codebase it was difficult to understand why this kind of feedback was not being propagated. Despite the effort and the time that I put into exploring and understanding the state of the system architecture I was not able to implement a fully functioning fix to this issue.
+
+Week 8 - 1st June
+I managed to fix the issue with the bandwidth request and implement the correct propagation of bw estimates to the app.
+The issue was caused by a routine that recurrently checks for audio / video encoder activity. In other words, since the API completely bypasses the encoding and directly injects pre-encoded frames, this routine would detect an unexpected encoder inactivity. As a consequence the encoder was removed from the list of “observers” for bandwidth updates.
+
+After the fix the first working prototype of the API was essentially complete. The implementation however was very shaky and not well designed. I decided to revisit the design and try to make it as transparent as possible to the WebRTC layer. I decided to create a “fake” encoder class that the WebRTC would use normally as an encoder. This class would receive all the updates that encoders normally receive and simply propagate them to Blink, the renderer process that handles the JavaScript code. This way I should be able to bypass most of the problems caused by breaking the assumptions made in WebRTC and also have a more simple and elegant solution. In this case most of the issues would come from bridging the gap between WebRTC and Blink. The complexity mostly comes from the necessity for the renderer process to be isolated and “sandboxed” as much as possible, due to security concerns. The reasons for this need are beyond the scope of my project but essentially derive from the intrinsic nature of a Browser to run untrusted code coming from the internet.
+
+Week 9 - 8th June
+Worked on a new Web API for allocating EncodedAudioFrames objects starting with an EncodedAudioChunk.
+This constructor is necessary for apps that wish to use external encoders to generate an encoded stream of data and inject it into an existing PeerConnection. In other words this is what allows apps to fully exploit the createEncodedSource API I was previously working on.
+The Apps can now take a raw stream of data (Audio for now), encode it using any external encoder (like the existing WebCodec), allocate EncodedFrames and directly inject them.
+The reason this new constructor is necessary is that the underlying object webrtc::TransformableFrameInterface is not exposed as it contains fields that are not of interest for web Apps and that are only used by the lower layers to ensure correct transport over the internet.
+
+The main issue I had was getting the correct rtpTimestamp for the frames. The RTP Timestamp is a time label that monotonically increases and represents the sampling instant of the first sample in the frame. An example from the standard: “If an audio application reads blocks covering 160 sampling periods from the input device, the timestamp would be increased by 160 for each such block”. However this timestamp is typically exposed containing a random offset (fixed for each stream) for privacy reasons.
+Since the App generating the encoded frames may not know the value we allow allocation with offset starting from 0 and add the offset afterward, just before sending the packets.
+
+Week 10 - 15th June
+Mainly worked on refining the implementation for the previously mentioned EncodedAudioFrame constructor. In the webrtc library. The important architectural decision was how to correctly handle the new possibility of having a non-offset RTP timestamp. From a software engineering perspective, adding a simple flag and a method to check if the frame was missing the offset resulted in a semantic change of the existing getter and setter method for the rtpTimestamp field. Although this was not a complicated change from an implementation perspective it was crucial that the semantic meaning of existing or new methods was correct. This meant that the “flag” solution had to be discarded and a more thorough change was needed, since from now on each frame could have an rtpTimestamp that does not include the standard-defined offset.
+The solution was to store the value in a std::variant that clearly holds the timestamp value with xor without the added offset.
+
+A couple of snippets from the code changes:
+
+api/frame_transformer_interface.h
+struct RtpTimestampRaw {
+  uint32_t value;
+  operator uint32_t() const { return value; }
+};
+struct RtpTimestampWithOffset {
+  uint32_t value;
+  operator uint32_t() const { return value; }
+};
+using RtpTimestamp = std::variant<RtpTimestampRaw, RtpTimestampWithOffset>;
+
+audio/channel_send_frame_transformer_delegate.cc
+class TransformableOutgoingAudioFrame
+    : public TransformableAudioFrameInterface {
+[...]
+ private:
+  AudioFrameType frame_type_;
+  uint8_t payload_type_;
+  RtpTimestamp rtp_timestamp_;
+[...]
+}
+
+An important thing to mention is that these changes are made to the public webrtc API meaning that all applications that depend on it may need to adapt to the changes.
+
+The full (non definitive) list of code changes, the so-called CL, is available for public review.
+An important step towards full code integration in the main repo is testing. Part of this week was dedicated to this but more work needs to be done.
+
+Week 11 - 22nd June
+Mainly worked on the CL submission for the EncodedAudioFrame constructor.
+A couple of days were spent investigating if a factory method (for the sender class)  would have been more suited for allocating EncodedAudioFrames. A factory method would have allowed to directly query the underlying layers and obtain the rtp offset that has to be added to the given timestamp. This idea was discarded for performance reasons, as querying that value is not just as simple as reading a variable but requires thread hopping between blink and webrtc threads. This is due to the architecture of the software and strict separation between layers, that I believe is necessary for security among other things.
+The rest of the week was dedicated to fine-tuning the CL (new link) so that it could be sent for review. As previously mentioned, adding this constructor changes some of the assumptions on the state of a valid TransformableOutgoingAudioFrame object which means that the process of getting the code to be accepted requires deprecation of old APIs. This makes in turn the overall timeline for a “simple addition” much longer.
+
+I aim at landing this CL by mid next week and get back to work on the EncodedSource API.
+
+Week 12 - 29th June
+Submitted and landed the EncodedAudioFrame constructor CLs for webrtc and chromium.
+A lot of work was dedicated to making sure that the landing process succeeded. The main issue to address was that while webrtc is a standalone library, the tests that are required to execute for code changes to be accepted include compatibility tests with chromium. In other words, if a change is perfectly integrated in webrtc but ends up breaking a chromium test, the change is rejected. This meant that while a single “atomic” CL would have been ideal, I ended up having to upload 7 CLs. The last CL is the single line of code change in webrtc that finally deprecates the old GetTimestamp() method.
+
+To better explain the need for this:
+
+ webrtc CL -> add the constructor and the new GetRtpTimestampInfo() method, remove all usages of GetTimestamp() in webrtc. (2 chained CLs)
+ /!\ a test in chromium now fails. The frame clone() function in webrtc migrated to using the new getter for the rtp timestamp but the chromium test is passing a MockFrame to be cloned that does not provide a mock implementation for the new getter.The process that continuously integrates webrtc changes in chromium is stopped and the previous CL is at risk of being reverted.
+ webrtc CL -> revert only the clone() function to using the old getter.
+ … wait for both webrtc CLs to be integrated in chromium
+ chromium CL -> expose the EncodedAudioFrame constructor to the web AND edit the previously failing test to mock BOTH the old and the new getter.
+ webrtc CL -> migrate the clone() function to using the new getter
+ chromium CL -> remove the now useless mock for the old getter in the test.
+ webrtc CL -> finally mark the old getter.
+
+I also managed to get back to the main project and started to rethink the old architectural decision thanks to the much deeper understanding that I now have of some parts of the codebase. The plan is to have a final working implementation for the EncodedSource (hopefully both audio and video) by the end of next week. One or two more weeks will probably be needed for landing the necessary chromium and webrtc CLs.
+
+
+Week 13 - 6th July
+My manager decided that it might be better for me to work on a new side feature due to other Googlers needing it. He assigned me to work on the Constructor for the EncodedVideoFrame.
+This would have been an extra step we would keep for the end of the internship but we ended up prioritizing it.
+The architecture of the implementation is very similar to the EncodedAudioFrame. We define the IDL for a struct that contains all the data needed to assemble the audio frame. We pass the struct to a free factory method that allocates the webrtc::TransformableVideoFrame and wraps it into a web-exposed blink::RTCRtpEncodedVideoFrame.
+
+As for the audio frame, this allows the JS app to use external encoder to produce the payload of the frame object and then inject the frames in the peerconnection using the EncodedSink API.
+The difference with Audio Frames is that Video Frames have much more metadata and are in general more complex data structures. For example a video frame can be a Keyframe or a Deltaframe, it can occupy different “spatial layers”, meaning that it can be used for enhancing the resolution of the video stream (480p -> 720p -> 1080p) but also occupy different “temporal layers”, meaning that it can be used to increase the framerate of the stream.
+All of this depends on the complexity of the encoder/decoder pipeline and requires extra metadata. I started with a simple working demo that includes as little metadata as possible and will extend the implementation to support what the video team suggests.
+
+In the meantime I also kept working on the main project and successfully implemented a clean and structured demo of the EncodedSink API for video injection, including keyframes requests events and bandwidth estimate events. This implementation is relying on the existing transformer API and we are still considering the possibility of using the Proxy encoder instead.
+
+Week 14 - 13h July
+I completed the first implementation of the Encoded Video Frame constructor and showed a working demo to a Googler in the video team.
+Submitted the code for review but still have not received any feedback (lots of people on holiday + next week many colleagues will be going to be the IETF conference).
+I also worked on the EncodedSink API (main project) and managed to have a working and stable implementation that includes keyFrame and bandwidth estimate events updates. I submitted it for an initial review as well, although it is still missing tests.
+
+Week 15 - 20th July
+Worked on a demo for the EncodedSink injection pipeline for Audio. Developed a first working prototype. This was again achieved by having a “fake encoder” object replace the normal real encoders in the webrtc stack and eternally inject audio frames, similarly to how it works for video. The implementation still needs  a lot of refinement work but at least it seems like it should be possible to do what we wanted. The injection was also tested with simultaneous audio and video injection.
+As far as bandwidth estimation and keyframe requests signals are concerned, we agreed that while the API design does include them (as it is the same for audio and video) no actual events will be fired or propagated for audio. This is mainly because audio frames have no distinction between key and delta frames, and the bandwidth used for audio is so small that encodes can safely ignore fluctuations in available bandwidth.
+
+Week 16 - 27th July
+Worked on comments and changes for the EncodedVIdeoConstructor webrtc CL. I was asked to split the CL in two to allow for a cleaner separation of the code. I had some issues with flakey (i.e. non-deterministic) tests causing the CL to be reverted and re-landed again. I landed the first webrtc CL, waiting for the second half to be approved, and for the Chromium CL to be reviewed.
+I also refactored the Chromium CL for EncodedSink (video) injection to simplify the architecture design and have an overall cleaner implementation.
+
+Week 17 - 3rd August
+Landed both webrtc CLs for EncodedVideoFrameConstructor.
+Submitted blink CL for final review for the same constructor.
+
+Mainly worked on a deep refactoring of the EncodedVideoSink API.
+The main issue was that, while the first proposal worked, it skipped a lot of checks and invariants of the normal webrtc video pipeline. The solution we found consists in injecting a “raw” (i.e. non-encoded) video frame as if it was coming from a normal camera for each encoded frame we want to send. A proxy encoder is also used to intercept the request to encode that frame and it will provide as a result the actual encoded frame. This way webrtc thinks that everything is going as it normally does but we manage to actually inject.
+
+Week 18 - 10th August
+Mainly worked on the webrtc CL for the Video Encoded Source.
+Added a method CreateVideoFrameInjector to the Sender Class. This method returns an interface that allows to inject encoded video frames in the sender. All the implementation details (proxy media track, proxy video encoder and encoder factory are now hidden in webrtc, as requested by code owners).
+Since the injection mechanism is now correctly implemented, most of the work is going towards ensuring code satisfies code reviewers requirements.
+
+Week 19 - 17th August
+Worked on the webrtc CL for the Video Encoded Source. Mainly addressed code owner comments and edit requests on the CL. The main logic was considered to be ok and most of the changes were related to applying best practices of WebRTC and open source software in general.
+I also worked on the webrtc CL for audio injection and started to preemptively apply similar changes before sending it for review.
+
+Week 20 - 24th August
+Kept working on webrtc CL for Video Encoded Source and addressing code owner comments and suggestions. (Unfortunately the process is designed to be asynchronous and the waiting time to get a response for a submission varies a lot. The person responsible for the review is a Principal Engineer and cannot review my code with the same frequency that I submit it).
+Again most of the issues were related to best practices like annotating methods with the threads that will execute it, allowing for a so called “lock free” programming, where objects “belong” to a single thread and avoid shared state as much as possible. This in general allows for less Locks and forces communication to happen with task posting, similar to how multi-process concurrency works.
+
+WebRTC and blink CLs for encodedSource API are ready and under review. Blink is fully owned by my manager so getting approval is much faster. The main bottleneck for now is WebRTC reviews. I will now have to start working on the final presentation and demos for the project.
+
+Week 21 - 31st August
+Week 22 - 7th September
+Work on final changes for webrtc and chromium CLs, and prepared final presentation.
