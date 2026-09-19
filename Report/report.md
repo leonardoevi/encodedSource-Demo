@@ -27,8 +27,6 @@
 
 ## 1. Introduction
 
-### 1.1 The problem in one sentence
-
 A modern browser can send live audio and video to another browser, and it is very good at it, but it insists on compressing that media itself: today there is no way for a web application to feed its own already-compressed audio or video into WebRTC's real-time transport while still receiving the signals — key-frame requests and bandwidth updates — that keep such a stream usable, even though the Web Platform already lets applications produce compressed media on their own, through WebCodecs and WebAssembly, and lets them observe (but not originate) frames already inside a connection, through WebRTC Encoded Transform. This internship closed that gap: it contributed, across both of the open-source repositories that implement a browser's real-time stack — WebRTC and Chromium — a way to construct a compressed audio or video frame from scratch and inject it into a live connection while preserving the connection's control signals, validated with a working demonstration web application and documented in a public explainer now before the W3C WebRTC Working Group.
 
 ---
