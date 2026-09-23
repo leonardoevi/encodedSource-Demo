@@ -145,7 +145,14 @@ Real-time media communication itself, however, is not implemented inside Chromiu
 \section{WebRTC}
 \label{sec:webrtc}
 
-\textbf{WebRTC} is a set of protocols, together with a core object called a \textit{peer connection}, that let two ends exchange audio, video and data directly, in real time, with end-to-end encryption. A peer connection is not something unique to the browser: it is what the WebRTC library discussed in Section~\ref{sec:chromium} exposes directly to native and server-side applications, and it is what the browser exposes to JavaScript, as the \texttt{RTCPeerConnection} object. \emph{WebRTC for the Curious}~\cite{curious}, an open community reference on the protocol suite, is a useful companion to the following summary, that explains the main features that WebRTC implements.
+\textbf{WebRTC} is a set of protocols, together with a core object called a \textit{peer connection}, that let two ends exchange audio, video and data directly, in real time, with end-to-end encryption. A peer connection is not something unique to the browser: it is what the WebRTC library discussed in Section~\ref{sec:chromium} exposes directly to native and server-side applications, and it is what the browser exposes to JavaScript, as the \texttt{RTCPeerConnection} object. \emph{WebRTC for the Curious}~\cite{curious}, an open community reference on the protocol suite, is a useful companion to the following summary, that explains the main features that WebRTC implements. Figure~\ref{fig:pcapi} sketches the shape of this object before going into the detail of each feature.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.55\textwidth]{media/pc-api.png}
+\caption{The \texttt{RTCPeerConnection} object, as the application sees it: it holds the local and remote streams exchanged with the peer, and an ICE agent that finds a usable network path with the help of STUN and TURN servers. Source: \cite{hpbn}.}
+\label{fig:pcapi}
+\end{figure}
 
 
 \textbf{Signaling.} Before any media flows, the two ends need to agree on what they are about to exchange: which media kinds, which codecs, in which order of preference, and which network addresses to try. This is done by exchanging a \textbf{Session Description Protocol (SDP)} document each way: one side sends an \emph{offer}, the other replies with an \emph{answer}. WebRTC deliberately does not standardize how this exchange itself happens; the application is free to carry these SDP documents over a WebSocket, an HTTP request, or any channel it already has, which is what lets WebRTC fit into any existing server infrastructure.
