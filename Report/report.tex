@@ -308,7 +308,14 @@ Rather than bypassing the browser's encoding pipeline (which would silently brea
 
 From the pipeline's point of view, this proxy is a completely ordinary encoder: it receives the same key-frame requests and bandwidth allocations any encoder would, and it participates in statistics and bookkeeping like any other. In practice, though, it does no compression: it simply hands over the frame the application already supplied.
 
-This gives the mechanism a clean, symmetric shape: compressed frames flow \emph{down}, from the application in Blink, across the browser's internal layer boundary, into the WebRTC library and onto the network, while the two control signals flow in the \emph{opposite direction}, from the network, through WebRTC's proxy encoder, back across that same boundary, up to the application in Blink.
+This gives the mechanism a clean, symmetric shape, shown in Figure~\ref{fig:solution-architecture}: compressed frames flow \emph{down}, from the application in Blink, across the browser's internal layer boundary, into the WebRTC library and onto the network, while the two control signals flow in the \emph{opposite direction}, from the network, through WebRTC's proxy encoder, back across that same boundary, up to the application in Blink.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{media/solution-architecture.png}
+\caption{Architecture of the proposed solution. The Encoded Source lives inside the \texttt{RTCRtpSender}, on the Chromium side of the boundary between the two repositories; it exchanges compressed frames and control signals with the proxy encoder on the WebRTC side, which in turn exchanges them with the rest of the WebRTC stack on their way to and from the network.}
+\label{fig:solution-architecture}
+\end{figure}
 
 Because the proxy behaves exactly like a real encoder to everything around it, the rest of the pipeline needs no special-casing, and an application that does not use the feature sees no change in behaviour at all.
 
