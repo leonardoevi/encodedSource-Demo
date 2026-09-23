@@ -213,7 +213,14 @@ Two concrete cases motivated this work.
 
 \textbf{Enterprise content delivery (eCDN).} This case targets large conferences or broadcasts distributed to many clients sitting on the same local network, a company-wide town hall, for instance, watched by hundreds of employees on the same office network at once.
 
-Rather than have every client pull the stream independently over the network's outward-facing internet connection, an eCDN deployment uses \emph{peer-assisted media forwarding}: a small number of clients inside the local network receive the stream once and relay it internally to the rest, over the much cheaper local link, so the shared entry point to the outside network is never overloaded.
+Rather than have every client pull the stream independently over the network's outward-facing internet connection, an eCDN deployment uses \emph{peer-assisted media forwarding}: a small number of clients inside the local network receive the stream once and relay it internally to the rest, over the much cheaper local link, so the shared entry point to the outside network is never overloaded, as shown in Figure~\ref{fig:ecdn}.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{media/eCDN.png}
+\caption{Peer-assisted media forwarding: the server outside the local network reaches only a handful of relaying clients (bold circles), which then forward the stream on to the rest over the cheaper local link, without the server ever addressing them directly.}
+\label{fig:ecdn}
+\end{figure}
 
 Building this in the browser requires a way to feed encoded media straight into a peer connection: a relaying client extracts the compressed frames arriving on its inbound connection (using the existing Encoded Transform API, without decoding them) and injects those same frames, unchanged, into each outbound connection to the clients it serves.
 
