@@ -289,9 +289,17 @@ The resulting design is documented in a public explainer~\cite{explainer}, of wh
 \section{Demonstration}
 \label{sec:demonstration}
 
-Both the audio and video paths were validated with a working demonstration web application, run between a local pair of machines over an ordinary peer connection. On the sending side, a WebCodecs encoder captures and compresses the local camera and microphone, the constructors from Section~\ref{sec:solution} turn each resulting chunk into a frame object, and the Encoded Source injects it into the connection in place of a real encoder. On the receiving side sits an unmodified peer: an ordinary \texttt{RTCPeerConnection} that decodes and renders the incoming stream exactly as it would any other call, with no knowledge that the frames arriving at it were ever anything other than normal WebRTC output. The page itself displays both ends of this path at once: the local preview of what is being captured and encoded, and the remote video as actually received after the round trip, so that the two can be compared directly.
+Both the audio and video paths were validated with a working demonstration web application, run between a local pair peer connection objects.
 
-The two control signals introduced in Section~\ref{sec:webrtc} are not just logged: they actively drive the demonstration's encoder. A key-frame request reaching the page forces the next call into the WebCodecs encoder to produce a key frame instead of a delta frame, and a bandwidth-allocation event reconfigures the encoder's target bitrate to match, just as described in Section~\ref{sec:encoding} for a browser-native encoder. Both events, along with the values they carry, are also written out live on the page itself, so that the feedback loop is visible, not just effective.
+On the sending side, a WebCodecs encoder captures and compresses the local camera and microphone, the constructors from Section~\ref{sec:solution} turn each resulting chunk into a frame object, and the Encoded Source injects it into the RTCPeerConnection.
+
+On the receiving side sits an unmodified peer: an ordinary RTCPeerConnection that decodes and renders the incoming stream exactly as it would any other call, with no knowledge that the frames arriving at it were ever anything other than normal WebRTC output. 
+
+The page itself displays both ends of this path at once: the local preview of what is being captured and encoded, and the remote video as actually received after the round trip, so that the two can be compared directly.
+
+The two control signals introduced in Section~\ref{sec:webrtc} are not just logged: they actively drive the demonstration's encoder. A key-frame request reaching the page forces the next call into the WebCodecs encoder to produce a key frame instead of a delta frame, and a bandwidth-allocation event reconfigures the encoder's target bitrate to match, just as described in Section~\ref{sec:encoding} for a browser-native encoder.
+
+Both events, along with the values they carry, are also written out live on the page itself, so that the feedback loop is visible, not just effective.
 
 Because the demonstration runs over a real, if local, network path, its bandwidth estimate reflects whatever that path can actually sustain, which on a local link is normally far more than a call would ever need. To exercise the bandwidth-adaptation side of the design deliberately, the available bandwidth between the two machines can be artificially constrained, which is enough to bring the sender's bandwidth estimate down, trigger a \texttt{bitrateinfochange} event on the Encoded Source, and observe the demonstration's encoder lower its target bitrate in response, live on the page.
 
