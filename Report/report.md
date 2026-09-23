@@ -84,7 +84,7 @@ Real-time media communication itself, however, is not implemented inside Chromiu
 
 **Packetization: RTP.** Media itself travels as a sequence of **RTP** packets, defined by a deliberately minimal protocol: each packet carries a small header followed by an opaque, codec-specific payload that RTP itself does not interpret. The header records a *payload type* (identifying which codec the payload was encoded with), a monotonically increasing *sequence number* (so the receiver can detect loss and reordering), a *timestamp* (so it can play frames back at the right rate and keep audio and video in sync), and a *synchronization source (SSRC)*, a randomly chosen identifier that lets several independent streams (an audio track and a video track, say) share the same connection without their packets being confused for one another. RTP is deliberately unopinionated about a packet that never arrives: it does not retransmit anything itself, leaving loss to be concealed by the receiver or recovered through the RTCP feedback discussed next. A single compressed video or audio frame produced by an encoder is often too large for one packet and is split across several RTP packets sharing the same timestamp, with a *marker bit* in the header of the last one signaling that a frame boundary has been reached.
 
-**Feedback: RTCP.** Running alongside RTP is a parallel control channel, **RTCP**, on which the receiving side continuously reports back to the sender. This feedback comes in two flavors that matter for this report. The first is *reactive*: if a receiver notices a small number of packets are missing, it can ask for them to be retransmitted (a **NACK**), but once enough loss accumulates that its decoder can no longer make sense of the stream, retransmission stops being useful, and it instead sends a **key-frame request** (called PLI or FIR in the protocol), asking the sender to start over with a frame that does not depend on anything already lost. The second is *proactive*: the two ends continuously exchange timing information that lets the sender estimate how much bandwidth the network path can currently sustain. An algorithm such as Google Congestion Control does this by watching how the delay between consecutive packets grows or shrinks, and the sender turns that estimate into a bitrate budget it hands to its encoder. Together, a key-frame request and a bandwidth estimate are the feedback loop that turns a raw encoder into something usable for real-time media: without them, a video call cannot recover from packet loss or adapt to a changing network.
+**Feedback: RTCP.** Running alongside RTP is a parallel control channel, **RTCP**, on which the receiving side continuously reports back to the sender. This feedback comes in two flavors that matter for this report. The first is *reactive*: if a receiver notices a small number of packets are missing, it can ask for them to be retransmitted (a **NACK**), but once enough loss accumulates that its decoder can no longer make sense of the stream, retransmission stops being useful, and it instead sends a **key-frame request** (called PLI or FIR in the protocol), asking the sender to start over with a frame that does not depend on anything already lost. The second is *proactive*: the two ends continuously exchange timing information that lets the sender estimate how much bandwidth the network path can currently sustain. An algorithm such as Google Congestion Control (GCC) does this by watching how the delay between consecutive packets grows or shrinks, and the sender turns that estimate into a bitrate budget it hands to its encoder. Together, a key-frame request and a bandwidth estimate are the feedback loop that turns a raw encoder into something usable for real-time media: without them, a video call cannot recover from packet loss or adapt to a changing network.
 
 Today, this entire pipeline runs inside the browser: a browser-supplied encoder produces the outgoing frames, and that same internal code is what receives key-frame requests and bandwidth updates directly, with no application involvement. The only existing opening for an application to touch this pipeline is **WebRTC Encoded Transform**, an existing Web API, introduced a few years ago, that lets a script observe and modify compressed frames in either direction as they pass between the browser's encoder and the part of the pipeline that packages them for the network.
 
@@ -221,22 +221,30 @@ The next step is standardization. The explainer that documents this design needs
 | Term | Meaning |
 |---|---|
 | **Blink** | The component of Chromium that implements the Web Platform interfaces JavaScript sees |
+| **Delta frame** | Also called a P-frame; a compressed video frame coded as the difference from a previous frame, cheaper to encode than a key frame but undecodable without it |
 | **DTLS** | Datagram TLS; the key-exchange protocol used by WebRTC over UDP |
 | **eCDN** | Enterprise content delivery network; internal redistribution of a stream to reduce external bandwidth |
 | **Encoded Transform** | Existing Web API allowing an application to observe and modify compressed frames in flight |
 | **GCC** | Google Congestion Control; an algorithm that estimates available bandwidth from packet delay trends |
 | **ICE** | Interactive Connectivity Establishment; the NAT-traversal procedure used by WebRTC |
 | **IETF** | Internet Engineering Task Force; standardizes the wire protocols |
-| **Key frame** | A compressed video frame decodable on its own, as opposed to a delta frame coded as a difference from previous frames |
+| **Intent to Prototype / Intent to Ship** | Chromium's process for shipping a new capability, from an experimental, flag-gated implementation to a public proposal reviewed by other browser vendors |
+| **Key frame** | Also called an I-frame; a compressed video frame decodable on its own, as opposed to a delta frame coded as a difference from previous frames |
+| **Mojo** | Chromium's interprocess-communication layer, used by a sandboxed renderer process to ask the privileged browser process to act on its behalf |
 | **NACK** | Negative Acknowledgement; an RTCP message asking the sender to retransmit specific lost packets |
 | **Opus** | The audio codec WebRTC uses by default |
 | **PLI / FIR** | Picture Loss Indication / Full Intra Request; RTCP messages asking the sender for a key frame |
+| **Proxy encoder** | A stand-in encoder installed inside the WebRTC library that receives key-frame requests and bandwidth allocations like a real encoder, but substitutes an application-supplied compressed frame instead of encoding one itself |
+| **Roll** | The automated process that pulls the latest WebRTC commit into Chromium's own source tree |
 | **RTCP** | The control and feedback channel accompanying RTP |
 | **RTP** | Real-time Transport Protocol; carries media packets |
+| **Rule of Two** | A Chromium security principle: code that parses untrustworthy input, is written in a memory-unsafe language, and runs with high privilege should satisfy at most two of the three |
 | **SDP** | Session Description Protocol; the document format used to negotiate a connection's media and network parameters |
 | **SFU** | Selective Forwarding Unit; a server that forwards compressed streams without decoding them |
 | **SRTP** | Secure RTP; the encrypted form used by WebRTC |
+| **SSRC** | Synchronization source; a randomly chosen identifier that lets several independent RTP streams share the same connection |
 | **STUN / TURN** | Servers used to discover a public address, and to relay traffic when direct connection fails |
+| **V8** | Chromium's JavaScript engine, which executes application script and, through generated bindings, calls into Blink |
 | **W3C** | World Wide Web Consortium; standardizes the Web Platform interfaces |
 | **WASM** | WebAssembly; portable binary format allowing compiled code to run in the browser |
 | **WebCodecs** | Web API giving direct access to the browser's encoders and decoders |
