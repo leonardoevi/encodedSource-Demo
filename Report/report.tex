@@ -109,14 +109,14 @@ partial interface RTCRtpSender {
 
 Section~\ref{sec:solution} explains what this method does and why; for now, it is enough to know that naming a method, its arguments and what it returns, like this, is exactly the kind of thing the W3C is responsible for.
 
-The \textbf{Internet Engineering Task Force (IETF)}~\cite{ietf} specifies the wire protocols instead: the actual bytes that travel between two machines, independent of any particular browser. The protocols used by WebRTC, introduced in Section~\ref{sec:webrtc}, are IETF standards. This report's contribution sits entirely on the W3C side: it adds a new interface for an application to use, without changing anything about what travels over the network.
+The \textbf{Internet Engineering Task Force (IETF)}~\cite{ietf} specifies the wire protocols instead: the actual bytes that travel between two machines, independent of any particular browser. The protocols used by WebRTC, introduced in Section~\ref{sec:webrtc}, are IETF standards~\cite{rfc8825}. This report's contribution sits entirely on the W3C side: it adds a new interface for an application to use, without changing anything about what travels over the network.
 
 A new browser capability follows a characteristic life cycle: an \emph{explainer} document motivating the feature and sketching the interface; discussion in the relevant working group; an experimental implementation in at least one browser engine; refinement of the design in light of that implementation; a formal specification; and, eventually, implementation by the other engines. This internship's contribution sits in the middle of that cycle: an experimental implementation, and the design feedback that came from building it.
 
 \section{Chromium}
 \label{sec:chromium}
 
-Chromium is the open-source browser project that underlies several shipping browsers, including Google Chrome, Microsoft Edge, Opera, and Brave. It is developed in the open at \texttt{chromium.googlesource.com} under a permissive open-source license, and while most of its contributions come from engineers employed by Google, its review process does not distinguish between them and anyone else: every change is proposed as a patch and reviewed on \texttt{chromium-review.googlesource.com} by an owner of the affected area of code, and it is merged only once that reviewer approves it. This is the process by which the Chromium-side changes listed in Appendix~\ref{app:changes} were merged during this internship.
+Chromium is the open-source browser project~\cite{chromiumprojects} that underlies several shipping browsers, including Google Chrome, Microsoft Edge, Opera, and Brave. It is developed in the open at \texttt{chromium.googlesource.com} under a permissive open-source license, and while most of its contributions come from engineers employed by Google, its review process does not distinguish between them and anyone else: every change is proposed as a patch and reviewed on \texttt{chromium-review.googlesource.com} by an owner of the affected area of code, and it is merged only once that reviewer approves it. This is the process by which the Chromium-side changes listed in Appendix~\ref{app:changes} were merged during this internship.
 
 Chromium's own architecture reflects the same untrusted-code assumption that shapes the rest of the Web Platform (Section~\ref{sec:webplatform}), applied internally: the browser is split into several operating-system processes rather than run as one program, a design documented in Chromium's own \emph{Multi-process Architecture} reference~\cite{multiprocess}. A privileged \textbf{browser process} owns the parts of the system a website should never touch directly: the filesystem, raw network sockets, camera and microphone hardware, the window and its UI chrome. Each open site instead runs inside its own \textbf{renderer process}, which is confined by an operating-system sandbox (seccomp-bpf on Linux, Seatbelt on macOS, restricted job objects on Windows) that denies it direct access to the filesystem or the network. A separate \textbf{GPU process} mediates access to graphics and video hardware. Processes never share memory or call into each other directly; every cross-process interaction goes through a narrow, versioned interprocess-communication layer called \textbf{Mojo}~\cite{mojo}, so that a renderer can only ask the browser process to do something on its behalf, never do it itself, as illustrated in Figure~\ref{fig:sandbox-ipc}.
 
@@ -131,7 +131,7 @@ This separation is not incidental; it follows from a documented internal princip
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.5\textwidth]{media/rule-of-two.png}
+\includegraphics[width=0.65\textwidth]{media/rule-of-two.png}
 \caption{Chromium's Rule of Two \cite{ruleof2}.}
 \label{fig:ruleoftwo}
 \end{figure}
@@ -161,7 +161,7 @@ Real-time media communication itself, however, is not implemented inside Chromiu
 
 \textbf{Encryption.} Once a candidate pair is selected, the two ends encrypt the connection before anything else travels over it, using \textbf{DTLS}~\cite{rfc9147}: the same idea as the TLS that already secures ordinary web traffic over HTTPS, adapted to run over UDP, since plain TLS assumes packets always arrive, in order, which UDP does not guarantee. Securing a connection this way normally also means checking who is on the other end, which HTTPS does by consulting a certificate authority, but WebRTC has no such authority to ask; instead, the signaling exchange described above already carried a fingerprint of each side's certificate inside the SDP, and each side simply checks that the certificate presented during the DTLS handshake matches the fingerprint it was already given. The cryptographic keys this handshake produces are then used to key \textbf{SRTP}~\cite{rfc3711}, which encrypts and authenticates every media packet that follows.
 
-\textbf{Packetization: RTP.} Media itself travels as a sequence of \textbf{RTP} packets, defined by a deliberately minimal protocol: each packet carries a small header followed by an opaque, codec-specific payload that RTP itself does not interpret. The header records a \emph{payload type} (identifying which codec the payload was encoded with), a monotonically increasing \emph{sequence number} (so the receiver can detect loss and reordering), a \emph{timestamp} (so it can play frames back at the right rate and keep audio and video in sync), and a \emph{synchronization source (SSRC)}, a randomly chosen identifier that lets several independent streams (an audio track and a video track, say) share the same connection without their packets being confused for one another. RTP is deliberately unopinionated about a packet that never arrives: it does not retransmit anything itself, leaving loss to be concealed by the receiver or recovered through the RTCP feedback discussed next. A single compressed video or audio frame produced by an encoder is often too large for one packet and is split across several RTP packets sharing the same timestamp, with a \emph{marker bit} in the header of the last one signaling that a frame boundary has been reached, as shown in Figure~\ref{fig:packetization}.
+\textbf{Packetization: RTP.} Media itself travels as a sequence of \textbf{RTP} packets, defined by a deliberately minimal protocol: each packet carries a small header followed by an opaque, codec-specific payload that RTP itself does not interpret. The header records a \emph{payload type} (identifying which codec the payload was encoded with), a monotonically increasing \emph{sequence number} (so the receiver can detect loss and reordering), a \emph{timestamp} (so it can play frames back at the right rate and keep audio and video in sync), and a \emph{synchronization source (SSRC)}, a randomly chosen identifier that lets several independent streams (an audio track and a video track, say) share the same connection without their packets being confused for one another. RTP is deliberately unopinionated about a packet that never arrives: it does not retransmit anything itself, leaving loss to be concealed by the receiver or recovered through the RTCP feedback discussed next. A single compressed video or audio frame produced by an encoder is often too large for one packet and is split across several RTP packets sharing the same timestamp, as shown in Figure~\ref{fig:packetization}.
 
 \begin{figure}[h]
 \centering
@@ -170,7 +170,7 @@ Real-time media communication itself, however, is not implemented inside Chromiu
 \label{fig:packetization}
 \end{figure}
 
-\textbf{Feedback: RTCP.} Running alongside RTP is a parallel control channel, \textbf{RTCP}, on which the receiving side continuously reports back to the sender. This feedback comes in two flavors that matter for this report. The first is \emph{reactive}: if a receiver notices a small number of packets are missing, it can ask for them to be retransmitted (a \textbf{NACK}), but once enough loss accumulates that its decoder can no longer make sense of the stream, retransmission stops being useful, and it instead sends a \textbf{key-frame request} (called PLI or FIR in the protocol), asking the sender to start over with a frame that does not depend on anything already lost. The second is \emph{proactive}: the two ends continuously exchange timing information that lets the sender estimate how much bandwidth the network path can currently sustain. An algorithm such as Google Congestion Control (GCC) does this by watching how the delay between consecutive packets grows or shrinks, and the sender turns that estimate into a bitrate budget it hands to its encoder. Together, a key-frame request and a bandwidth estimate are the feedback loop that turns a raw encoder into something usable for real-time media: without them, a video call cannot recover from packet loss or adapt to a changing network.
+\textbf{Feedback: RTCP.} Running alongside RTP is a parallel control channel, \textbf{RTCP}, on which the receiving side continuously reports back to the sender. This feedback comes in two flavors that matter for this report. The first is \emph{reactive}: if a receiver notices a small number of packets are missing, it can ask for them to be retransmitted (a \textbf{NACK}), but once enough loss accumulates that its decoder can no longer make sense of the stream, retransmission stops being useful, and it instead sends a \textbf{key-frame request} (called PLI or FIR in the protocol), asking the sender to start over with a frame that does not depend on anything already lost. The second is \emph{proactive}: the two ends continuously exchange timing information that lets the sender estimate how much bandwidth the network path can currently sustain. An algorithm such as Google Congestion Control (GCC)~\cite{gcc} does this by watching how the delay between consecutive packets grows or shrinks, and the sender turns that estimate into a bitrate budget it hands to its encoder. Together, a key-frame request and a bandwidth estimate are the feedback loop that turns a raw encoder into something usable for real-time media: without them, a video call cannot recover from packet loss or adapt to a changing network.
 
 Today, this entire pipeline runs inside the browser: a browser-supplied encoder produces the outgoing frames, and that same internal code is what receives key-frame requests and bandwidth updates directly, with no application involvement. The only existing opening for an application to touch this pipeline is \textbf{WebRTC Encoded Transform}~\cite{encodedtransform}, an existing Web API, introduced a few years ago, that lets a script observe and modify compressed frames in either direction as they pass between the browser's encoder and the part of the pipeline that packages them for the network.
 
@@ -191,7 +191,7 @@ All of this is also computationally expensive, and video is usually where it sho
 
 Audio has the same problem on a smaller scale: an uncompressed 48 kHz, 16-bit stereo signal, the format WebRTC captures by default, is still around 1.5 megabits per second, which is worth shrinking even though it is a fraction of what video requires. Opus, the codec WebRTC uses by default, routinely brings that down to well under a tenth of its raw size, compressing each successive 20-millisecond slice of audio and, like a video encoder, is given a bitrate target it must live within. It does not, however, build the same long, fragile dependency chains that video does, so losing one audio packet degrades a fraction of a second of sound rather than everything that follows it, and audio streams never need an explicit key-frame request.
 
-An application that supplies its own already-compressed frames, as described in Section~\ref{sec:solution}, is in the same position as an encoder: it is the one entity that can act on a key-frame request by producing a self-contained frame, and the one entity that can act on a bandwidth estimate by changing what it produces next. Any design that lets such an application inject frames into a peer connection has to deliver it these same two signals, or it will behave worse than the encoder it replaced.
+An application that supplies its own already-compressed frames is in the same position as an encoder: it is the one entity that can act on a key-frame request by producing a self-contained frame, and the one entity that can act on a bandwidth estimate by changing what it produces next. Any design that lets such an application inject frames into a peer connection has to deliver it these same two signals, or it will behave worse than the encoder it replaced.
 
 \section{Limitations of the Current Web Platform}
 \label{sec:limitations}
@@ -209,7 +209,7 @@ The underlying capability already exists outside the browser: native application
 
 Two concrete cases motivated this work.
 
-\textbf{Custom codecs.} An application built with WebCodecs and WebAssembly (Section~\ref{sec:limitations}) may have an encoder the browser does not: a newer standard codec, one tuned for screen content, a research codec, or a proprietary one. Today, such an encoder has nowhere to send its output; it needs the ability to inject its already-compressed frames directly into a peer connection.
+\textbf{Custom codecs.} An application built with WebCodecs and WebAssembly may have an encoder the browser does not: a newer standard codec, one tuned for screen content, a research codec, or a proprietary one. Today, such an encoder has nowhere to send its output; it needs the ability to inject its already-compressed frames directly into a peer connection.
 
 \textbf{Enterprise content delivery (eCDN).} This case targets large conferences or broadcasts distributed to many clients sitting on the same local network, a company-wide town hall, for instance, watched by hundreds of employees on the same office network at once.
 
@@ -312,7 +312,7 @@ This gives the mechanism a clean, symmetric shape, shown in Figure~\ref{fig:solu
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.7\textwidth]{media/solution-architecture.png}
+\includegraphics[width=0.9\textwidth]{media/solution-architecture.png}
 \caption{Architecture of the proposed solution. The Encoded Source lives inside the \texttt{RTCRtpSender}, on the Chromium side of the boundary between the two repositories; it exchanges compressed frames and control signals with the proxy encoder on the WebRTC side, which in turn exchanges them with the rest of the WebRTC stack on their way to and from the network.}
 \label{fig:solution-architecture}
 \end{figure}
@@ -510,8 +510,10 @@ IETF, RFC 3711,
 \bibitem{rfc8825}
 IETF, RFC 8825-8835, the WebRTC protocol suite.
 
-\bibitem{rfc8298}
-IETF, RFC 8298 and related documents on congestion control for real-time media.
+\bibitem{gcc}
+G. Carlucci, L. De Cicco, S. Holmer, and S. Mascolo,
+\emph{Congestion Control for Web Real-Time Communication}.
+\url{https://ieeexplore.ieee.org/document/7938641}
 
 \bibitem{multiprocess}
 Chromium Developers,
